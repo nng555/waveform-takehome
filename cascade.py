@@ -1,8 +1,6 @@
 from openai import OpenAI
 client = OpenAI()
 
-#API_KEY = "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"
-
 import argparse
 from utils import *
 
