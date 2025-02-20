@@ -358,7 +358,6 @@ if not st.session_state.chat_started and 'api_key' in st.session_state and st.se
                 ]
 
                 st.session_state.chat_started = True
-                st.rerun()
 
             except Exception as e:
                 error_message = str(e)
