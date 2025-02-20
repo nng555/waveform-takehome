@@ -398,35 +398,16 @@ if st.session_state.chat_started:
 
     st.subheader("🎤 Voice Message")
 
-    webrtc_ctx = webrtc_streamer(
-        key="speech-to-text",
-        mode=WebRtcMode.SENDONLY,
-        audio_receiver_size=1024,
-        media_stream_constraints={"video": False, "audio": True},
-    )
+    audio_value = st.audio_input("record a voice message to transcribe")
 
-    sound_chunk = pydub.AudioSegment.empty()
-    silence_frames = 0
+    if audio_value:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file = audio_value
+        )
 
-    while True:
-        if webrtc_ctx.audio_receiver:
-            status_indicator.write("Running. Say something!")
-
-            try:
-                audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=timeout)
-            except queue.Empty:
-                status_indicator.write("No frame arrived.")
-                sound_chunk = handle_queue_empty(sound_chunk, text_output)
-                continue
-
-            sound_chunk, silence_frames = process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold)
-            sound_chunk, silence_frames = handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output)
-        else:
-            status_indicator.write("Stopping.")
-            if len(sound_chunk) > 0:
-                user_message = transcribe(sound_chunk.raw_data)
-                text_output.write(user_message)
-            break
+        user_msesage = transcript.text
+        st.write(transcript_text)
 
     if user_message.strip():  # Only process non-empty messages
         # Display user message
