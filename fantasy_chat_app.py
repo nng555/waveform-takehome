@@ -301,32 +301,6 @@ def render_chat_interface(client: OpenAI, voice: str):
     # Input section below the chat
     st.markdown("---")
 
-    # Text input as fallback
-    text_input = st.text_input(
-        f"Type your message to {st.session_state.character_name}",
-        key="text_message",
-        placeholder="Type here if audio isn't working..."
-    )
-
-    # Process text input if provided
-    if text_input:
-        # Add to conversation history
-        st.session_state.messages.append({"role": "user", "content": text_input})
-
-        # Generate response
-        with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
-            response, audio_content = process_chat_response(client, st.session_state.messages, voice)
-
-            # Add to conversation history
-            st.session_state.messages.append({"role": "assistant", "content": response})
-
-            # Store audio in session state
-            st.session_state.pending_audio = audio_content
-
-            # Clear text input and rerun
-            st.session_state.text_message = ""
-            st.rerun()
-
     # Play pending audio if available (after handling text input)
     if st.session_state.pending_audio is not None:
         try:
@@ -365,11 +339,17 @@ def render_chat_interface(client: OpenAI, voice: str):
                     # Store audio in session state
                     st.session_state.pending_audio = audio_content
 
+                    st.audio(
+                        st.session_state.pending_audio,
+                        format="audio/mp3",
+                        start_time=0
+                    )
+
                     # Mark as processed to prevent reprocessing on rerun
                     st.session_state.audio_processed = True
 
                     # Force a rerun to update the chat display
-                    st.rerun()
+                    #st.rerun()
     else:
         # Reset audio processing flag when no input is pending
         st.audio_input(f"Record your message to {st.session_state.character_name}", label_visibility="visible")
