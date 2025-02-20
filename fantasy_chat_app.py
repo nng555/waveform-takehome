@@ -44,6 +44,10 @@ def initialize_session_state():
     if 'pending_audio' not in st.session_state:
         st.session_state.pending_audio = None
 
+    if 'reset_triggered' not in st.session_state:
+        st.session_state.reset_triggered = False
+
+
 
 def init_openai_client() -> Optional[OpenAI]:
     """Initialize the OpenAI client with the API key from session state."""
@@ -360,14 +364,9 @@ def render_chat_interface(client: OpenAI, voice: str):
 
     # Reset button
     if st.button("🔄 Start a new conversation"):
-        st.session_state.messages = []
-        st.session_state.character_name = ""
-        st.session_state.character_description = ""
-        st.session_state.chat_started = False
-        st.session_state.audio_processed = False
-        st.session_state.pending_audio = None
+        # Instead of directly modifying session state here, set a flag
+        st.session_state.reset_triggered = True
         st.rerun()
-
 
 # -----------------------------------------------------------------------------
 # Main Application
@@ -379,6 +378,20 @@ def main():
 
     # Initialize session state
     initialize_session_state()
+
+    # Process reset if triggered
+    if st.session_state.get('reset_triggered', False):
+        # Clear all conversation-related state
+        st.session_state.messages = []
+        st.session_state.character_name = ""
+        st.session_state.character_description = ""
+        st.session_state.chat_started = False
+        st.session_state.messages_count = 0
+        st.session_state.audio_processed = False
+        st.session_state.pending_audio = None
+        # Reset the trigger
+        st.session_state.reset_triggered = False
+        # No need for another rerun - we're already at the top of the script
 
     # Debug mode (optional)
     debug_mode = False
