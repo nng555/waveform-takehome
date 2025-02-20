@@ -253,7 +253,7 @@ if st.session_state.chat_started:
             file = audio_value
         )
 
-        user_msesage = transcript.text
+        user_message = transcript.text
         st.write(user_message)
 
     if user_message.strip():  # Only process non-empty messages
