@@ -38,8 +38,8 @@ def initialize_session_state():
     if 'messages_count' not in st.session_state:
         st.session_state.messages_count = 0
 
-    if 'last_recording_id' not in st.session_state:
-        st.session_state.last_recording_id = 0
+    if 'audio_processed' not in st.session_state:
+        st.session_state.audio_processed = False
 
     if 'pending_audio' not in st.session_state:
         st.session_state.pending_audio = None
@@ -248,6 +248,9 @@ def render_character_selection(client: OpenAI):
                 ]
 
                 st.session_state.chat_started = True
+                # Reset audio processing flags
+                st.session_state.audio_processed = False
+                st.session_state.pending_audio = None
                 return True
 
             except Exception as e:
@@ -283,86 +286,55 @@ def render_chat_interface(client: OpenAI, voice: str):
             with st.chat_message(role, avatar="🧙‍♂️" if role == "assistant" else None):
                 st.write(message["content"])
 
-    # Input section below the chat
-    st.markdown("---")
-    st.subheader("🎤 Voice Message")
-
-    # Track if we need to process a new recording
-    new_recording = False
-
-    # Audio input handling with key to prevent reprocessing
-    if 'last_recording_id' not in st.session_state:
-        st.session_state.last_recording_id = 0
-
-    recording_id = st.session_state.last_recording_id
-    audio_value = st.audio_input("record a voice message", key=f"audio_input_{recording_id}")
-    user_message = ""
-
-    if audio_value and 'current_audio_processed' not in st.session_state:
-        # Set flag to avoid reprocessing
-        st.session_state.current_audio_processed = True
-        new_recording = True
-        st.session_state.last_recording_id += 1
-
-        user_message = handle_audio_input(client, audio_value)
-        if user_message:
-            temp_display = st.empty()
-            temp_display.write(user_message)
-
     # Play pending audio if available
-    if 'pending_audio' in st.session_state and st.session_state.pending_audio:
+    if st.session_state.pending_audio is not None:
         st.audio(st.session_state.pending_audio, format="audio/mp3", start_time=0)
+        # Clear pending audio after playing it
         st.session_state.pending_audio = None
 
-
     # Input section below the chat
     st.markdown("---")
-    st.subheader("🎤 Voice Message")
 
-    # Audio input handling
-    audio_value = st.audio_input("record a voice message to transcribe")
-    user_message = ""
+    # Audio input handling - process only if not already processed
+    if not st.session_state.audio_processed:
+        audio_value = st.audio_input(f"Record your message to {st.session_state.character_name}")
 
-    if audio_value:
-        user_message = handle_audio_input(client, audio_value)
-        if user_message:
-            # Display the transcribed message temporarily
-            message_display = st.empty()
-            message_display.write(user_message)
+        if audio_value:
+            # Get transcription
+            user_message = handle_audio_input(client, audio_value)
 
-    # Process valid messages - only if we have a new recording
-    if new_recording and user_message.strip():
-        # Add to conversation history
-        st.session_state.messages.append({"role": "user", "content": user_message})
+            if user_message.strip():
+                # Add to conversation history
+                st.session_state.messages.append({"role": "user", "content": user_message})
 
-        # Generate response
-        with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
-            response, audio_content = process_chat_response(client, st.session_state.messages, voice)
+                # Generate response
+                with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
+                    response, audio_content = process_chat_response(client, st.session_state.messages, voice)
 
-            # Add to conversation history
-            st.session_state.messages.append({"role": "assistant", "content": response})
+                    # Add to conversation history
+                    st.session_state.messages.append({"role": "assistant", "content": response})
 
-            # Store audio in session state
-            st.session_state.pending_audio = audio_content
+                    # Store audio in session state
+                    st.session_state.pending_audio = audio_content
 
-            # Clear processing flag so we're ready for next recording
-            del st.session_state.current_audio_processed
+                    # Mark as processed to prevent reprocessing on rerun
+                    st.session_state.audio_processed = True
 
-            # Force a rerun to update the chat display and clear input
-            st.rerun()
+                    # Force a rerun to update the chat display
+                    st.rerun()
+    else:
+        # Reset audio processing flag when no input is pending
+        st.audio_input(f"Record your message to {st.session_state.character_name}")
+        st.session_state.audio_processed = False
 
     # Reset button
     if st.button("🔄 Start a new conversation"):
-        # Clear all relevant session state
         st.session_state.messages = []
         st.session_state.character_name = ""
         st.session_state.character_description = ""
         st.session_state.chat_started = False
-        st.session_state.messages_count = 0
-        st.session_state.last_recording_id = 0
+        st.session_state.audio_processed = False
         st.session_state.pending_audio = None
-        if 'current_audio_processed' in st.session_state:
-            del st.session_state.current_audio_processed
         st.rerun()
 
 
