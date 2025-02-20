@@ -1,13 +1,18 @@
-import streamlit as st
+# App title and description
+st.title("Fantasy Character Chat")
+st.markdown("Have conversations with characters from a high fantasy world!")import streamlit as st
 import tempfile
 import os
 import time
 
-# Import OpenAI inside a try block to handle potential import errors
+# Wrap OpenAI import in try/except
 try:
     from openai import OpenAI
-except ImportError:
-    st.error("Failed to import OpenAI library. Please make sure it's installed correctly.")
+    OPENAI_AVAILABLE = True
+except ImportError as e:
+    st.error(f"Failed to import OpenAI library: {e}")
+    st.info("Please make sure the openai package is installed with: `pip install openai>=1.1.0`")
+    OPENAI_AVAILABLE = False
     OpenAI = None
 
 # Initialize OpenAI client
@@ -16,12 +21,41 @@ client = None
 def init_openai_client():
     api_key = st.session_state.api_key if 'api_key' in st.session_state else None
     if api_key and api_key.startswith('sk-'):
-        return OpenAI(api_key=api_key)
+        try:
+            return OpenAI(api_key=api_key)
+        except Exception as e:
+            st.error(f"Error initializing OpenAI client: {str(e)}")
+            return None
     return None
 
-# App title and description
-st.title("Fantasy Character Chat")
-st.markdown("Have conversations with characters from a high fantasy world!")
+# Add debugging information - will be visible only in development
+debug_mode = False
+if debug_mode:
+    st.write("### Debug Information")
+    import sys
+    st.write(f"Python version: {sys.version}")
+    st.write("Environment information:")
+    try:
+        import pkg_resources
+        st.write("Installed packages:")
+        packages = sorted([f"{pkg.key}=={pkg.version}" for pkg in pkg_resources.working_set])
+        for package in packages:
+            if any(name in package.lower() for name in ['openai', 'streamlit', 'requests']):
+                st.write(f"- {package}")
+    except Exception as e:
+        st.write(f"Error checking packages: {e}")
+
+    if 'api_key' in st.session_state:
+        masked_key = st.session_state.api_key[:4] + "..." + st.session_state.api_key[-4:] if st.session_state.api_key else "Not set"
+        st.write(f"API key status: {masked_key}")
+
+    # Check OpenAI client
+    if OPENAI_AVAILABLE:
+        st.write("OpenAI library is available ✓")
+    else:
+        st.write("OpenAI library is NOT available ✗")
+
+    st.write("---")
 
 # Show main API key input if not configured
 if 'api_key' not in st.session_state or not st.session_state.api_key:
