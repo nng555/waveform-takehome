@@ -5,6 +5,108 @@ import time
 import base64
 import logging
 from io import BytesIO
+import logging
+import logging.handlers
+import queue
+import threading
+import time
+import urllib.request
+import os
+from collections import deque
+from pathlib import Path
+from typing import List
+
+import av
+import numpy as np
+import pydub
+import streamlit as st
+from twilio.rest import Client
+
+from streamlit_webrtc import WebRtcMode, webrtc_streamer
+
+HERE = Path(__file__).parent
+
+logger = logging.getLogger(__name__)
+
+
+# This code is based on https://github.com/streamlit/demo-self-driving/blob/230245391f2dda0cb464008195a470751c01770b/streamlit_app.py#L48  # noqa: E501
+def download_file(url, download_to: Path, expected_size=None):
+    # Don't download the file twice.
+    # (If possible, verify the download using the file length.)
+    if download_to.exists():
+        if expected_size:
+            if download_to.stat().st_size == expected_size:
+                return
+        else:
+            st.info(f"{url} is already downloaded.")
+            if not st.button("Download again?"):
+                return
+
+    download_to.parent.mkdir(parents=True, exist_ok=True)
+
+    # These are handles to two visual elements to animate.
+    weights_warning, progress_bar = None, None
+    try:
+        weights_warning = st.warning("Downloading %s..." % url)
+        progress_bar = st.progress(0)
+        with open(download_to, "wb") as output_file:
+            with urllib.request.urlopen(url) as response:
+                length = int(response.info()["Content-Length"])
+                counter = 0.0
+                MEGABYTES = 2.0 ** 20.0
+                while True:
+                    data = response.read(8192)
+                    if not data:
+                        break
+                    counter += len(data)
+                    output_file.write(data)
+
+                    # We perform animation by overwriting the elements.
+                    weights_warning.warning(
+                        "Downloading %s... (%6.2f/%6.2f MB)"
+                        % (url, counter / MEGABYTES, length / MEGABYTES)
+                    )
+                    progress_bar.progress(min(counter / length, 1.0))
+    # Finally, we remove these visual elements by calling .empty().
+    finally:
+        if weights_warning is not None:
+            weights_warning.empty()
+        if progress_bar is not None:
+            progress_bar.empty()
+
+
+# This code is based on https://github.com/whitphx/streamlit-webrtc/blob/c1fe3c783c9e8042ce0c95d789e833233fd82e74/sample_utils/turn.py
+@st.cache_data  # type: ignore
+def get_ice_servers():
+    """Use Twilio's TURN server because Streamlit Community Cloud has changed
+    its infrastructure and WebRTC connection cannot be established without TURN server now.  # noqa: E501
+    We considered Open Relay Project (https://www.metered.ca/tools/openrelay/) too,
+    but it is not stable and hardly works as some people reported like https://github.com/aiortc/aiortc/issues/832#issuecomment-1482420656  # noqa: E501
+    See https://github.com/whitphx/streamlit-webrtc/issues/1213
+    """
+
+    # Ref: https://www.twilio.com/docs/stun-turn/api
+    try:
+        account_sid = os.environ["TWILIO_ACCOUNT_SID"]
+        auth_token = os.environ["TWILIO_AUTH_TOKEN"]
+    except KeyError:
+        logger.warning(
+            "Twilio credentials are not set. Fallback to a free STUN server from Google."  # noqa: E501
+        )
+        return [{"urls": ["stun:stun.l.google.com:19302"]}]
+
+    client = Client(account_sid, auth_token)
+
+    token = client.tokens.create()
+
+    return token.ice_servers
+
+
+
+def main():
+
+
+def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int):
 
 # Wrap OpenAI import in try/except
 try:
@@ -271,168 +373,124 @@ if st.session_state.chat_started:
 
     # WebRTC audio section if available
     recorded_audio = None
-    if WEBRTC_AVAILABLE:
-        col1, col2 = st.columns([1, 1])
+    col1, col2 = st.columns([1, 1])
 
-        with col1:
-            st.subheader("🎤 Voice Message")
+    with col1:
+        st.subheader("🎤 Voice Message")
 
-            # WebRTC streamer for audio
-            webrtc_ctx = webrtc_streamer(
-                key="speech-to-text",
-                mode=WebRtcMode.SENDONLY,
-                audio_receiver_size=256,
-                client_settings=ClientSettings(
-                    media_stream_constraints={"audio": True, "video": False},
-                ),
-                rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-            )
 
-            # Recording controls
-            if webrtc_ctx.state.playing:
-                if st.button("Start Recording"):
-                    st.session_state.audio_processor.start_recording()
-                    st.info("Recording... Press 'Stop Recording' when finished.")
+        # https://github.com/mozilla/DeepSpeech/releases/tag/v0.9.3
+        MODEL_URL = "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.pbmm"  # noqa
+        LANG_MODEL_URL = "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.scorer"  # noqa
+        MODEL_LOCAL_PATH = HERE / "models/deepspeech-0.9.3-models.pbmm"
+        LANG_MODEL_LOCAL_PATH = HERE / "models/deepspeech-0.9.3-models.scorer"
 
-                if st.button("Stop Recording"):
-                    recorded_audio = st.session_state.audio_processor.stop_recording()
-                    if recorded_audio:
-                        st.success("Recording completed!")
-                        # Save to temp file for processing
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
-                            tmp.write(recorded_audio)
-                            st.session_state.audio_file_path = tmp.name
-                    else:
-                        st.error("No audio was recorded.")
-    else:
-        st.warning("Audio recording is not available. Please use text input instead.")
+        download_file(MODEL_URL, MODEL_LOCAL_PATH, expected_size=188915987)
+        download_file(LANG_MODEL_URL, LANG_MODEL_LOCAL_PATH, expected_size=953363776)
 
-    # Text input section
-    st.subheader("⌨️ Text Message")
-    text_input = st.text_input(
-        "Type your message:",
-        key="text_input",
-        placeholder="What would you like to say?"
-    )
+        lm_alpha = 0.931289039105002
+        lm_beta = 1.1834137581510284
+        beam = 100
 
-    # Helper text
-    if WEBRTC_AVAILABLE:
-        st.caption("You can either record audio by clicking the microphone, or type your message in the text box.")
-    else:
-        st.caption("Please type your message in the text box.")
+        webrtc_ctx = webrtc_streamer(
+            key="speech-to-text",
+            mode=WebRtcMode.SENDONLY,
+            audio_receiver_size=1024,
+            rtc_configuration={"iceServers": get_ice_servers()},
+            media_stream_constraints={"video": False, "audio": True},
+        )
 
-    # Process recorded audio if available
-    if 'audio_file_path' in st.session_state and client:
-        try:
-            # Transcribe audio
-            audio_file = open(st.session_state.audio_file_path, "rb")
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file
-            )
-            os.unlink(st.session_state.audio_file_path)  # Clean up temp file
-            del st.session_state.audio_file_path
+        status_indicator = st.empty()
 
-            user_message = transcription.text
-            if user_message.strip():  # Only process non-empty messages
-                # Display user message
-                with st.chat_message("user"):
-                    st.write(user_message)
+        if not webrtc_ctx.state.playing:
+            return
 
-                # Add to conversation history
-                st.session_state.messages.append({"role": "user", "content": user_message})
+        status_indicator.write("Loading...")
+        text_output = st.empty()
+        stream = None
 
-                # Generate response
-                with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
-                    res = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=st.session_state.messages,
-                    )
-                    response = res.choices[0].message.content
+        while True:
+            if webrtc_ctx.audio_receiver:
+                if stream is None:
+                    from deepspeech import Model
 
-                # Display assistant response
-                with st.chat_message("assistant", avatar="🧙‍♂️"):
-                    st.write(response)
+                    model = Model(model_path)
+                    model.enableExternalScorer(lm_path)
+                    model.setScorerAlphaBeta(lm_alpha, lm_beta)
+                    model.setBeamWidth(beam)
 
-                # Add to conversation history
-                st.session_state.messages.append({"role": "assistant", "content": response})
+                    stream = model.createStream()
 
-                # Generate speech
-                with st.spinner("🔊 Generating voice response..."):
-                    try:
-                        audio_response = client.audio.speech.create(
-                            model="tts-1",
-                            voice=voice,
-                            input=response,
-                        )
+                    status_indicator.write("Model loaded.")
 
-                        # Play the audio
-                        st.audio(audio_response.content, format="audio/mp3", start_time=0)
-                    except Exception as e:
-                        st.warning(f"Could not generate speech (but the text response is available): {str(e)}")
-
-                st.rerun()  # Refresh the UI
-
-        except Exception as e:
-            st.error(f"Error processing audio: {str(e)}")
-            if 'audio_file_path' in st.session_state:
+                sound_chunk = pydub.AudioSegment.empty()
                 try:
-                    os.unlink(st.session_state.audio_file_path)
-                    del st.session_state.audio_file_path
-                except:
-                    pass
-            st.info("💡 Try typing your message instead if audio recording isn't working on your device.")
+                    audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
+                except queue.Empty:
+                    time.sleep(0.1)
+                    status_indicator.write("No frame arrived.")
+                    continue
 
-    # Process text input
-    elif text_input and client:
-        user_message = text_input
+                status_indicator.write("Running. Say something!")
 
-        # Reset the text input field before processing to prevent duplicate submissions
-        current_input = user_message
-        st.session_state.text_input = ""
+                for audio_frame in audio_frames:
+                    sound = pydub.AudioSegment(
+                        data=audio_frame.to_ndarray().tobytes(),
+                        sample_width=audio_frame.format.bytes,
+                        frame_rate=audio_frame.sample_rate,
+                        channels=len(audio_frame.layout.channels),
+                    )
+                    sound_chunk += sound
 
-        # Display user message
-        with st.chat_message("user"):
-            st.write(current_input)
+                if len(sound_chunk) > 0:
+                    sound_chunk = sound_chunk.set_channels(1).set_frame_rate(
+                        model.sampleRate()
+                    )
+                    buffer = np.array(sound_chunk.get_array_of_samples())
+                    stream.feedAudioContent(buffer)
+                    text = stream.intermediateDecode()
+                    text_output.markdown(f"**User:** {text}")
+            else:
+                status_indicator.write("AudioReciver is not set. Abort.")
+                break
 
-        # Add to conversation history
-        st.session_state.messages.append({"role": "user", "content": current_input})
+        user_message = text
+        if user_message.strip():  # Only process non-empty messages
+            # Display user message
+            with st.chat_message("user"):
+                st.write(user_message)
 
-        # Generate response
-        with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
-            try:
+            # Add to conversation history
+            st.session_state.messages.append({"role": "user", "content": user_message})
+
+            # Generate response
+            with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
                 res = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=st.session_state.messages,
-                    max_tokens=300  # Keep responses reasonably short
                 )
                 response = res.choices[0].message.content
 
-                # Display assistant response
-                with st.chat_message("assistant", avatar="🧙‍♂️"):
-                    st.write(response)
+            # Display assistant response
+            with st.chat_message("assistant", avatar="🧙‍♂️"):
+                st.write(response)
 
-                # Add to conversation history
-                st.session_state.messages.append({"role": "assistant", "content": response})
+            # Add to conversation history
+            st.session_state.messages.append({"role": "assistant", "content": response})
 
-                # Generate speech
-                with st.spinner("🔊 Generating voice response..."):
-                    try:
-                        audio_response = client.audio.speech.create(
-                            model="tts-1",
-                            voice=voice,
-                            input=response,
-                        )
+            # Generate speech
+            with st.spinner("🔊 Generating voice response..."):
+                try:
+                    audio_response = client.audio.speech.create(
+                        model="tts-1",
+                        voice=voice,
+                        input=response,
+                    )
 
-                        # Play the audio
-                        st.audio(audio_response.content, format="audio/mp3", start_time=0)
-                    except Exception as e:
-                        st.warning(f"Could not generate speech (but you can still read the response): {str(e)}")
-            except Exception as e:
-                st.error(f"Error generating response: {str(e)}")
-                st.session_state.messages.pop()  # Remove the user message if we couldn't get a response
-
-        st.rerun()  # Refresh the UI after processing
+                    # Play the audio
+                    st.audio(audio_response.content, format="audio/mp3", start_time=0)
+                except Exception as e:
+                    st.warning(f"Could not generate speech (but the text response is available): {str(e)}")
 
     # Add a reset button at the bottom of the chat
     if st.button("🔄 Start a new conversation"):
