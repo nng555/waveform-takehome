@@ -1,6 +1,4 @@
-# App title and description
-st.title("Fantasy Character Chat")
-st.markdown("Have conversations with characters from a high fantasy world!")import streamlit as st
+import streamlit as st
 import tempfile
 import os
 import time
@@ -27,6 +25,10 @@ def init_openai_client():
             st.error(f"Error initializing OpenAI client: {str(e)}")
             return None
     return None
+
+# App title and description
+st.title("Fantasy Character Chat")
+st.markdown("Have conversations with characters from a high fantasy world!")
 
 # Add debugging information - will be visible only in development
 debug_mode = False
