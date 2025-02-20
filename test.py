@@ -171,25 +171,24 @@ def app_sst(
     sound_chunk = pydub.AudioSegment.empty()
     silence_frames = 0
 
-    while True:
-        if webrtc_ctx.audio_receiver:
-            status_indicator.write("Running. Say something!")
+    if webrtc_ctx.audio_receiver:
+        status_indicator.write("Running. Say something!")
 
-            try:
-                audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=timeout)
-            except queue.Empty:
-                status_indicator.write("No frame arrived.")
-                sound_chunk = handle_queue_empty(sound_chunk, text_output)
-                continue
+        try:
+            audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=timeout)
+        except queue.Empty:
+            status_indicator.write("No frame arrived.")
+            sound_chunk = handle_queue_empty(sound_chunk, text_output)
+            continue
 
-            sound_chunk, silence_frames = process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold)
-            sound_chunk, silence_frames = handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output)
-        else:
-            status_indicator.write("Stopping.")
-            if len(sound_chunk) > 0:
-                text = transcribe(sound_chunk.raw_data)
-                text_output.write(text)
-            break
+        sound_chunk, silence_frames = process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold)
+        sound_chunk, silence_frames = handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output)
+    else:
+        status_indicator.write("Stopping.")
+        if len(sound_chunk) > 0:
+            text = transcribe(sound_chunk.raw_data)
+            text_output.write(text)
+        break
 
 def main():
     st.title("Real-time Speech-to-Text")
