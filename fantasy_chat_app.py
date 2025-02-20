@@ -20,7 +20,13 @@ def init_openai_client():
     api_key = st.session_state.api_key if 'api_key' in st.session_state else None
     if api_key and api_key.startswith('sk-'):
         try:
+            # Create client with just the API key, no additional parameters
             return OpenAI(api_key=api_key)
+        except TypeError as e:
+            # Handle version compatibility issues
+            st.error(f"Error initializing OpenAI client: {str(e)}")
+            st.info("You may need to update your openai package: `pip install --upgrade openai`")
+            return None
         except Exception as e:
             st.error(f"Error initializing OpenAI client: {str(e)}")
             return None
@@ -75,8 +81,9 @@ if 'api_key' not in st.session_state or not st.session_state.api_key:
     if api_key and api_key.startswith('sk-'):
         st.session_state.api_key = api_key
         client = init_openai_client()
-        st.success("✅ API key configured successfully!")
-        st.experimental_rerun()
+        if client:
+            st.success("✅ API key configured successfully!")
+            st.rerun()
 else:
     # Key is configured, initialize client
     client = init_openai_client()
@@ -96,7 +103,7 @@ else:
     # Add a small reset key option
     if st.button("🔑 Change API Key"):
         st.session_state.api_key = None
-        st.experimental_rerun()
+        st.rerun()
 
 # Initialize session state variables
 if 'messages' not in st.session_state:
@@ -156,7 +163,7 @@ if not st.session_state.chat_started and 'api_key' in st.session_state and st.se
                 ]
 
                 st.session_state.chat_started = True
-                st.experimental_rerun()
+                st.rerun()
 
             except Exception as e:
                 error_message = str(e)
@@ -324,7 +331,7 @@ if st.session_state.chat_started:
         st.session_state.character_name = ""
         st.session_state.character_description = ""
         st.session_state.chat_started = False
-        st.experimental_rerun()
+        st.rerun()
 
 # Add metrics tracking to sidebar
 if 'messages_count' not in st.session_state:
