@@ -1,9 +1,14 @@
 import streamlit as st
-from openai import OpenAI
 import tempfile
 import os
-from io import BytesIO
 import time
+
+# Import OpenAI inside a try block to handle potential import errors
+try:
+    from openai import OpenAI
+except ImportError:
+    st.error("Failed to import OpenAI library. Please make sure it's installed correctly.")
+    OpenAI = None
 
 # Initialize OpenAI client
 client = None
@@ -18,19 +23,21 @@ def init_openai_client():
 st.title("Fantasy Character Chat")
 st.markdown("Have conversations with characters from a high fantasy world!")
 
-# API Key input (in sidebar for cleaner UI)
-with st.sidebar:
-    st.header("Settings")
-    api_key = st.text_input("Enter your OpenAI API Key:", type="password",
-                           help="Your key stays in your browser and is never stored")
-    if api_key:
-        st.session_state.api_key = api_key
-        client = init_openai_client()
+# Create sidebar - forcing it to appear
+st.sidebar.title("Settings")
 
-    st.subheader("Voice Settings")
-    voice = st.selectbox("Character voice:",
-                        ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
-                        index=0)
+# API Key input in sidebar
+api_key = st.sidebar.text_input("Enter your OpenAI API Key:", type="password",
+                       help="Your key stays in your browser and is never stored")
+if api_key:
+    st.session_state.api_key = api_key
+    client = init_openai_client()
+
+# Voice settings in sidebar
+st.sidebar.subheader("Voice Settings")
+voice = st.sidebar.selectbox("Character voice:",
+                    ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+                    index=0)
 
 # Initialize session state variables
 if 'messages' not in st.session_state:
@@ -208,10 +215,9 @@ if st.session_state.chat_started:
         st.experimental_rerun()
 
 # Reset button
-with st.sidebar:
-    if st.button("Start New Conversation"):
-        st.session_state.messages = []
-        st.session_state.character_name = ""
-        st.session_state.character_description = ""
-        st.session_state.chat_started = False
-        st.experimental_rerun()
+if st.sidebar.button("Start New Conversation"):
+    st.session_state.messages = []
+    st.session_state.character_name = ""
+    st.session_state.character_description = ""
+    st.session_state.chat_started = False
+    st.experimental_rerun()
