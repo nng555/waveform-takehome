@@ -145,6 +145,9 @@ def generate_character(client: OpenAI, role_input: str) -> tuple:
 
 def process_chat_response(client: OpenAI, messages: List[Dict[str, str]], voice: str) -> tuple:
     """Process the chat response and generate audio if needed."""
+    import base64
+    from io import BytesIO
+
     try:
         # Generate text response
         res = client.chat.completions.create(
@@ -153,13 +156,14 @@ def process_chat_response(client: OpenAI, messages: List[Dict[str, str]], voice:
         )
         response = res.choices[0].message.content
 
-        # Generate speech - use a shorter version if too long
+        # Generate speech
         try:
             # Truncate long responses for TTS to avoid errors
             tts_input = response
             if len(response) > 4000:  # OpenAI TTS has input length limits
                 tts_input = response[:4000] + "..."
 
+            # Get speech from OpenAI
             audio_response = client.audio.speech.create(
                 model="tts-1",
                 voice=voice,
@@ -167,18 +171,21 @@ def process_chat_response(client: OpenAI, messages: List[Dict[str, str]], voice:
                 response_format="mp3",
             )
 
-            # Ensure we have valid audio content
+            # Convert to base64 string for reliable session state storage
             if hasattr(audio_response, 'content') and audio_response.content:
-                audio_content = audio_response.content
+                # Convert bytes to base64 string
+                audio_b64 = base64.b64encode(audio_response.content).decode('utf-8')
+                # Wrap in data URL format that st.audio can use directly
+                audio_data = f"data:audio/mp3;base64,{audio_b64}"
+                return response, audio_data
             else:
                 st.warning("Received empty audio content from OpenAI")
-                audio_content = None
+                return response, None
 
         except Exception as e:
             st.warning(f"Could not generate speech: {str(e)}")
-            audio_content = None
+            return response, None
 
-        return response, audio_content
     except Exception as e:
         raise Exception(f"Error processing chat response: {str(e)}")
 
@@ -288,8 +295,9 @@ def render_chat_interface(client: OpenAI, voice: str):
         st.markdown(f"*{st.session_state.character_description}*")
 
     # Display chat messages first
-    st.markdown("---")
-    st.subheader("Conversation")
+    if st.session_state.messages != []:
+        st.markdown("---")
+        st.subheader("Conversation")
     chat_container = st.container()
     with chat_container:
         # Only display user and assistant messages (not the system prompt)
@@ -339,17 +347,11 @@ def render_chat_interface(client: OpenAI, voice: str):
                     # Store audio in session state
                     st.session_state.pending_audio = audio_content
 
-                    st.audio(
-                        st.session_state.pending_audio,
-                        format="audio/mp3",
-                        start_time=0
-                    )
-
                     # Mark as processed to prevent reprocessing on rerun
                     st.session_state.audio_processed = True
 
                     # Force a rerun to update the chat display
-                    #st.rerun()
+                    st.rerun()
     else:
         # Reset audio processing flag when no input is pending
         st.audio_input(f"Record your message to {st.session_state.character_name}", label_visibility="visible")
