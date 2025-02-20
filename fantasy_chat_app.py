@@ -28,80 +28,147 @@ HERE = Path(__file__).parent
 
 logger = logging.getLogger(__name__)
 
+import streamlit as st
+import numpy as np
+from streamlit_webrtc import WebRtcMode, webrtc_streamer
+# from streamlit_webrtc import VideoTransformerBase, VideoTransformerContext
 
-# This code is based on https://github.com/streamlit/demo-self-driving/blob/230245391f2dda0cb464008195a470751c01770b/streamlit_app.py#L48  # noqa: E501
-def download_file(url, download_to: Path, expected_size=None):
-    # Don't download the file twice.
-    # (If possible, verify the download using the file length.)
-    if download_to.exists():
-        if expected_size:
-            if download_to.stat().st_size == expected_size:
-                return
+from pydub import AudioSegment
+import queue, pydub, tempfile, openai, os, time
+
+def save_audio(audio_segment: AudioSegment, base_filename: str) -> None:
+    """
+    Save an audio segment to a .wav file.
+
+    Args:
+        audio_segment (AudioSegment): The audio segment to be saved.
+        base_filename (str): The base filename to use for the saved .wav file.
+    """
+    filename = f"{base_filename}_{int(time.time())}.wav"
+    audio_segment.export(filename, format="wav")
+
+def transcribe(audio_segment: AudioSegment, debug: bool = False) -> str:
+    """
+    Transcribe an audio segment using OpenAI's Whisper ASR system.
+
+    Args:
+        audio_segment (AudioSegment): The audio segment to transcribe.
+        debug (bool): If True, save the audio segment for debugging purposes.
+
+    Returns:
+        str: The transcribed text.
+    """
+    if debug:
+        save_audio(audio_segment, "debug_audio")
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
+        audio_segment.export(tmpfile.name, format="wav")
+        answer = openai.Audio.transcribe(
+            "whisper-1",
+            tmpfile,
+            temperature=0.2,
+            prompt="",
+        )["text"]
+        tmpfile.close()
+        os.remove(tmpfile.name)
+        return answer
+
+def frame_energy(frame):
+    """
+    Compute the energy of an audio frame.
+
+    Args:
+        frame (VideoTransformerBase.Frame): The audio frame to compute the energy of.
+
+    Returns:
+        float: The energy of the frame.
+    """
+    samples = np.frombuffer(frame.to_ndarray().tobytes(), dtype=np.int16)
+    return np.sqrt(np.mean(samples**2))
+
+def process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold):
+    """
+    Process a list of audio frames.
+
+    Args:
+        audio_frames (list[VideoTransformerBase.Frame]): The list of audio frames to process.
+        sound_chunk (AudioSegment): The current sound chunk.
+        silence_frames (int): The current number of silence frames.
+        energy_threshold (int): The energy threshold to use for silence detection.
+
+    Returns:
+        tuple[AudioSegment, int]: The updated sound chunk and number of silence frames.
+    """
+    for audio_frame in audio_frames:
+        sound_chunk = add_frame_to_chunk(audio_frame, sound_chunk)
+
+        energy = frame_energy(audio_frame)
+        if energy < energy_threshold:
+            silence_frames += 1
         else:
-            st.info(f"{url} is already downloaded.")
-            if not st.button("Download again?"):
-                return
+            silence_frames = 0
 
-    download_to.parent.mkdir(parents=True, exist_ok=True)
+    return sound_chunk, silence_frames
 
-    # These are handles to two visual elements to animate.
-    weights_warning, progress_bar = None, None
-    try:
-        weights_warning = st.warning("Downloading %s..." % url)
-        progress_bar = st.progress(0)
-        with open(download_to, "wb") as output_file:
-            with urllib.request.urlopen(url) as response:
-                length = int(response.info()["Content-Length"])
-                counter = 0.0
-                MEGABYTES = 2.0 ** 20.0
-                while True:
-                    data = response.read(8192)
-                    if not data:
-                        break
-                    counter += len(data)
-                    output_file.write(data)
-
-                    # We perform animation by overwriting the elements.
-                    weights_warning.warning(
-                        "Downloading %s... (%6.2f/%6.2f MB)"
-                        % (url, counter / MEGABYTES, length / MEGABYTES)
-                    )
-                    progress_bar.progress(min(counter / length, 1.0))
-    # Finally, we remove these visual elements by calling .empty().
-    finally:
-        if weights_warning is not None:
-            weights_warning.empty()
-        if progress_bar is not None:
-            progress_bar.empty()
-
-
-# This code is based on https://github.com/whitphx/streamlit-webrtc/blob/c1fe3c783c9e8042ce0c95d789e833233fd82e74/sample_utils/turn.py
-@st.cache_data  # type: ignore
-def get_ice_servers():
-    """Use Twilio's TURN server because Streamlit Community Cloud has changed
-    its infrastructure and WebRTC connection cannot be established without TURN server now.  # noqa: E501
-    We considered Open Relay Project (https://www.metered.ca/tools/openrelay/) too,
-    but it is not stable and hardly works as some people reported like https://github.com/aiortc/aiortc/issues/832#issuecomment-1482420656  # noqa: E501
-    See https://github.com/whitphx/streamlit-webrtc/issues/1213
+def add_frame_to_chunk(audio_frame, sound_chunk):
     """
+    Add an audio frame to a sound chunk.
 
-    # Ref: https://www.twilio.com/docs/stun-turn/api
+    Args:
+        audio_frame (VideoTransformerBase.Frame): The audio frame to add.
+        sound_chunk (AudioSegment): The current sound chunk.
+
+    Returns:
+        AudioSegment: The updated sound chunk.
     """
-    try:
-        account_sid = os.environ["TWILIO_ACCOUNT_SID"]
-        auth_token = os.environ["TWILIO_AUTH_TOKEN"]
-    except KeyError:
-    """
-    logger.warning(
-        "Twilio credentials are not set. Fallback to a free STUN server from Google."  # noqa: E501
+    sound = pydub.AudioSegment(
+        data=audio_frame.to_ndarray().tobytes(),
+        sample_width=audio_frame.format.bytes,
+        frame_rate=audio_frame.sample_rate,
+        channels=len(audio_frame.layout.channels),
     )
-    return [{"urls": ["stun:stun.l.google.com:19302"]}]
+    sound_chunk += sound
+    return sound_chunk
 
-    client = Client(account_sid, auth_token)
+def handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output):
+    """
+    Handle silence in the audio stream.
 
-    token = client.tokens.create()
+    Args:
+        sound_chunk (AudioSegment): The current sound chunk.
+        silence_frames (int): The current number of silence frames.
+        silence_frames_threshold (int): The silence frames threshold.
+        text_output (st.empty): The Streamlit text output object.
 
-    return token.ice_servers
+    Returns:
+        tuple[AudioSegment, int]: The updated sound chunk and number of silence frames.
+    """
+    if silence_frames >= silence_frames_threshold:
+        if len(sound_chunk) > 0:
+            text = transcribe(sound_chunk)
+            text_output.write(text)
+            sound_chunk = pydub.AudioSegment.empty()
+            silence_frames = 0
+
+    return sound_chunk, silence_frames
+
+def handle_queue_empty(sound_chunk, text_output):
+    """
+    Handle the case where the audio frame queue is empty.
+
+    Args:
+        sound_chunk (AudioSegment): The current sound chunk.
+        text_output (st.empty): The Streamlit text output object.
+
+    Returns:
+        AudioSegment: The updated sound chunk.
+    """
+    if len(sound_chunk) > 0:
+        text = transcribe(sound_chunk)
+        text_output.write(text)
+        sound_chunk = pydub.AudioSegment.empty()
+
+    return sound_chunk
 
 
 # Wrap OpenAI import in try/except
@@ -374,77 +441,34 @@ if st.session_state.chat_started:
     with col1:
         st.subheader("🎤 Voice Message")
 
-
-        # https://github.com/mozilla/DeepSpeech/releases/tag/v0.9.3
-        MODEL_URL = "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.pbmm"  # noqa
-        LANG_MODEL_URL = "https://github.com/mozilla/DeepSpeech/releases/download/v0.9.3/deepspeech-0.9.3-models.scorer"  # noqa
-        MODEL_LOCAL_PATH = HERE / "models/deepspeech-0.9.3-models.pbmm"
-        LANG_MODEL_LOCAL_PATH = HERE / "models/deepspeech-0.9.3-models.scorer"
-
-        download_file(MODEL_URL, MODEL_LOCAL_PATH, expected_size=188915987)
-        download_file(LANG_MODEL_URL, LANG_MODEL_LOCAL_PATH, expected_size=953363776)
-
-        lm_alpha = 0.931289039105002
-        lm_beta = 1.1834137581510284
-        beam = 100
-
         webrtc_ctx = webrtc_streamer(
             key="speech-to-text",
             mode=WebRtcMode.SENDONLY,
             audio_receiver_size=1024,
-            rtc_configuration={"iceServers": get_ice_servers()},
             media_stream_constraints={"video": False, "audio": True},
         )
 
-        status_indicator = st.empty()
-
-        status_indicator.write("Loading...")
-        text_output = st.empty()
-        stream = None
+        sound_chunk = pydub.AudioSegment.empty()
+        silence_frames = 0
 
         while True:
             if webrtc_ctx.audio_receiver:
-                if stream is None:
-                    from deepspeech import Model
-
-                    model = Model(model_path)
-                    model.enableExternalScorer(lm_path)
-                    model.setScorerAlphaBeta(lm_alpha, lm_beta)
-                    model.setBeamWidth(beam)
-
-                    stream = model.createStream()
-
-                    status_indicator.write("Model loaded.")
-
-                sound_chunk = pydub.AudioSegment.empty()
-                try:
-                    audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=1)
-                except queue.Empty:
-                    time.sleep(0.1)
-                    status_indicator.write("No frame arrived.")
-                    continue
-
                 status_indicator.write("Running. Say something!")
 
-                for audio_frame in audio_frames:
-                    sound = pydub.AudioSegment(
-                        data=audio_frame.to_ndarray().tobytes(),
-                        sample_width=audio_frame.format.bytes,
-                        frame_rate=audio_frame.sample_rate,
-                        channels=len(audio_frame.layout.channels),
-                    )
-                    sound_chunk += sound
+                try:
+                    audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=timeout)
+                except queue.Empty:
+                    status_indicator.write("No frame arrived.")
+                    sound_chunk = handle_queue_empty(sound_chunk, text_output)
+                    continue
 
-                if len(sound_chunk) > 0:
-                    sound_chunk = sound_chunk.set_channels(1).set_frame_rate(
-                        model.sampleRate()
-                    )
-                    buffer = np.array(sound_chunk.get_array_of_samples())
-                    stream.feedAudioContent(buffer)
-                    text = stream.intermediateDecode()
-                    text_output.markdown(f"**User:** {text}")
+                sound_chunk, silence_frames = process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold)
+                sound_chunk, silence_frames = handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output)
             else:
-                status_indicator.write("AudioReciver is not set. Abort.")
+                status_indicator.write("Stopping.")
+                if len(sound_chunk) > 0:
+                    text = transcribe(sound_chunk.raw_data)
+                    text_output.write(text)
                 break
 
         user_message = text
