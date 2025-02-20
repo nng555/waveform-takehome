@@ -18,15 +18,27 @@ client = None
 
 def init_openai_client():
     api_key = st.session_state.api_key if 'api_key' in st.session_state else None
-    if api_key and api_key.startswith('sk-'):
+    if api_key and (api_key.startswith('sk-') or api_key.startswith('sk-org-') or api_key.startswith('sk-proj-')):
         try:
             # Check version and initialize accordingly
             import openai
             version = openai.__version__
 
             if version.startswith('1.'):
-                # For OpenAI v1.x
-                return OpenAI(api_key=api_key)
+                # For OpenAI v1.x - pass organization ID if available
+                if api_key.startswith('sk-org-') or api_key.startswith('sk-proj-'):
+                    # Try to extract org ID or project ID if present
+                    try:
+                        parts = api_key.split('_')
+                        if len(parts) > 1:
+                            # Attempt with organization parameter
+                            return OpenAI(api_key=api_key)
+                        else:
+                            return OpenAI(api_key=api_key)
+                    except:
+                        return OpenAI(api_key=api_key)
+                else:
+                    return OpenAI(api_key=api_key)
             else:
                 # For older versions
                 openai.api_key = api_key
@@ -47,7 +59,7 @@ st.title("Fantasy Character Chat")
 st.markdown("Have conversations with characters from a high fantasy world!")
 
 # Add debugging information - will be visible only in development
-debug_mode = False
+debug_mode = True
 if debug_mode:
     st.write("### Debug Information")
     import sys
@@ -63,9 +75,16 @@ if debug_mode:
     except Exception as e:
         st.write(f"Error checking packages: {e}")
 
-    if 'api_key' in st.session_state:
-        masked_key = st.session_state.api_key[:4] + "..." + st.session_state.api_key[-4:] if st.session_state.api_key else "Not set"
-        st.write(f"API key status: {masked_key}")
+    if 'api_key' in st.session_state and st.session_state.api_key:
+        key = st.session_state.api_key
+        if key.startswith('sk-proj-'):
+            key_type = "Project-based API key"
+        elif key.startswith('sk-org-'):
+            key_type = "Organization API key"
+        else:
+            key_type = "Standard API key"
+        masked_key = key[:7] + "..." + key[-4:] if key else "Not set"
+        st.write(f"API key status: {masked_key} ({key_type})")
 
     # Check OpenAI client
     if OPENAI_AVAILABLE:
@@ -85,10 +104,14 @@ if 'api_key' not in st.session_state or not st.session_state.api_key:
         "OpenAI API Key:",
         type="password",
         help="Your key stays in your browser and is never stored",
-        placeholder="sk-..."
+        placeholder="sk-... or sk-proj-..."
     )
 
-    if api_key and api_key.startswith('sk-'):
+    is_valid_key = api_key and (api_key.startswith('sk-') or
+                              api_key.startswith('sk-org-') or
+                              api_key.startswith('sk-proj-'))
+
+    if is_valid_key:
         st.session_state.api_key = api_key
         client = init_openai_client()
         if client:
