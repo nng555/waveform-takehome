@@ -102,12 +102,6 @@ def get_ice_servers():
     return token.ice_servers
 
 
-
-def main():
-
-
-def app_sst(model_path: str, lm_path: str, lm_alpha: float, lm_beta: float, beam: int):
-
 # Wrap OpenAI import in try/except
 try:
     from openai import OpenAI
