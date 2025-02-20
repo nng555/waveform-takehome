@@ -1,5 +1,5 @@
 import streamlit as st
-from st_audiorec import st_audiorec
+from audiorecorder import audiorecorder
 import tempfile
 import os
 import time
@@ -212,17 +212,17 @@ if st.session_state.chat_started:
     # Input section with both audio and text options
     st.markdown("---")
 
-    wav_audio_data = st_audiorec()
+    st.title("Audio Recorder")
+    audio = audiorecorder("Click to record", "Click to stop recording")
 
-    if wav_audio_data is not None:
-        st.audio(wav_audio_data, format='audio/wav')
+    if len(audio) > 0:
+        # To play audio in frontend:
+        st.audio(audio.export().read())
 
-    # Process audio input
-    if audio_bytes and client:
         with st.spinner("🎧 Processing your message..."):
             # Save audio to temp file
             with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
-                tmp.write(audio_bytes)
+                audio.export(tmp.name, format="wav")
                 tmp_path = tmp.name
 
             try:
