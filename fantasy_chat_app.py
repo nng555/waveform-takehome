@@ -1,4 +1,5 @@
 import streamlit as st
+from st_audiorec import st_audiorec
 import tempfile
 import os
 import time
@@ -211,6 +212,7 @@ if st.session_state.chat_started:
     # Input section with both audio and text options
     st.markdown("---")
 
+    """
     col1, col2 = st.columns([1, 3])
 
     # Variable to store audio input
@@ -241,6 +243,11 @@ if st.session_state.chat_started:
         st.caption("You can either record audio by clicking the microphone, or type your message in the text box.")
     else:
         st.caption("Please type your message in the text box.")
+    """
+    wav_audio_data = st_audiorec()
+
+    if wav_audio_data is not None:
+        st.audio(wav_audio_data, format='audio/wav')
 
     # Process audio input
     if audio_bytes and client:
