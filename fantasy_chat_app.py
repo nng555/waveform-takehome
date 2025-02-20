@@ -394,78 +394,78 @@ if st.session_state.chat_started:
 
     # WebRTC audio section if available
     recorded_audio = None
-    col1, col2 = st.columns([1, 1])
+    status_indicator = st.empty()
+    text_output = st.empty()
 
-    with col1:
-        st.subheader("🎤 Voice Message")
+    st.subheader("🎤 Voice Message")
 
-        webrtc_ctx = webrtc_streamer(
-            key="speech-to-text",
-            mode=WebRtcMode.SENDONLY,
-            audio_receiver_size=1024,
-            media_stream_constraints={"video": False, "audio": True},
-        )
+    webrtc_ctx = webrtc_streamer(
+        key="speech-to-text",
+        mode=WebRtcMode.SENDONLY,
+        audio_receiver_size=1024,
+        media_stream_constraints={"video": False, "audio": True},
+    )
 
-        sound_chunk = pydub.AudioSegment.empty()
-        silence_frames = 0
+    sound_chunk = pydub.AudioSegment.empty()
+    silence_frames = 0
 
-        while True:
-            if webrtc_ctx.audio_receiver:
-                status_indicator.write("Running. Say something!")
+    while True:
+        if webrtc_ctx.audio_receiver:
+            status_indicator.write("Running. Say something!")
 
-                try:
-                    audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=timeout)
-                except queue.Empty:
-                    status_indicator.write("No frame arrived.")
-                    sound_chunk = handle_queue_empty(sound_chunk, text_output)
-                    continue
+            try:
+                audio_frames = webrtc_ctx.audio_receiver.get_frames(timeout=timeout)
+            except queue.Empty:
+                status_indicator.write("No frame arrived.")
+                sound_chunk = handle_queue_empty(sound_chunk, text_output)
+                continue
 
-                sound_chunk, silence_frames = process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold)
-                sound_chunk, silence_frames = handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output)
-            else:
-                status_indicator.write("Stopping.")
-                if len(sound_chunk) > 0:
-                    text = transcribe(sound_chunk.raw_data)
-                    text_output.write(text)
-                break
+            sound_chunk, silence_frames = process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold)
+            sound_chunk, silence_frames = handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output)
+        else:
+            status_indicator.write("Stopping.")
+            if len(sound_chunk) > 0:
+                text = transcribe(sound_chunk.raw_data)
+                text_output.write(text)
+            break
 
-        user_message = text
-        if user_message.strip():  # Only process non-empty messages
-            # Display user message
-            with st.chat_message("user"):
-                st.write(user_message)
+    user_message = text
+    if user_message.strip():  # Only process non-empty messages
+        # Display user message
+        with st.chat_message("user"):
+            st.write(user_message)
 
-            # Add to conversation history
-            st.session_state.messages.append({"role": "user", "content": user_message})
+        # Add to conversation history
+        st.session_state.messages.append({"role": "user", "content": user_message})
 
-            # Generate response
-            with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
-                res = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=st.session_state.messages,
+        # Generate response
+        with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
+            res = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=st.session_state.messages,
+            )
+            response = res.choices[0].message.content
+
+        # Display assistant response
+        with st.chat_message("assistant", avatar="🧙‍♂️"):
+            st.write(response)
+
+        # Add to conversation history
+        st.session_state.messages.append({"role": "assistant", "content": response})
+
+        # Generate speech
+        with st.spinner("🔊 Generating voice response..."):
+            try:
+                audio_response = client.audio.speech.create(
+                    model="tts-1",
+                    voice=voice,
+                    input=response,
                 )
-                response = res.choices[0].message.content
 
-            # Display assistant response
-            with st.chat_message("assistant", avatar="🧙‍♂️"):
-                st.write(response)
-
-            # Add to conversation history
-            st.session_state.messages.append({"role": "assistant", "content": response})
-
-            # Generate speech
-            with st.spinner("🔊 Generating voice response..."):
-                try:
-                    audio_response = client.audio.speech.create(
-                        model="tts-1",
-                        voice=voice,
-                        input=response,
-                    )
-
-                    # Play the audio
-                    st.audio(audio_response.content, format="audio/mp3", start_time=0)
-                except Exception as e:
-                    st.warning(f"Could not generate speech (but the text response is available): {str(e)}")
+                # Play the audio
+                st.audio(audio_response.content, format="audio/mp3", start_time=0)
+            except Exception as e:
+                st.warning(f"Could not generate speech (but the text response is available): {str(e)}")
 
     # Add a reset button at the bottom of the chat
     if st.button("🔄 Start a new conversation"):
