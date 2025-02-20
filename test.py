@@ -188,7 +188,6 @@ def app_sst(
         if len(sound_chunk) > 0:
             text = transcribe(sound_chunk.raw_data)
             text_output.write(text)
-        break
 
 def main():
     st.title("Real-time Speech-to-Text")
