@@ -153,15 +153,27 @@ def process_chat_response(client: OpenAI, messages: List[Dict[str, str]], voice:
         )
         response = res.choices[0].message.content
 
-        # Generate speech
+        # Generate speech - use a shorter version if too long
         try:
+            # Truncate long responses for TTS to avoid errors
+            tts_input = response
+            if len(response) > 4000:  # OpenAI TTS has input length limits
+                tts_input = response[:4000] + "..."
+
             audio_response = client.audio.speech.create(
                 model="tts-1",
                 voice=voice,
-                input=response,
-                response_format="mp3",  # Changed from pcm to mp3
+                input=tts_input,
+                response_format="mp3",
             )
-            audio_content = audio_response.content
+
+            # Ensure we have valid audio content
+            if hasattr(audio_response, 'content') and audio_response.content:
+                audio_content = audio_response.content
+            else:
+                st.warning("Received empty audio content from OpenAI")
+                audio_content = None
+
         except Exception as e:
             st.warning(f"Could not generate speech: {str(e)}")
             audio_content = None
@@ -286,14 +298,49 @@ def render_chat_interface(client: OpenAI, voice: str):
             with st.chat_message(role, avatar="🧙‍♂️" if role == "assistant" else None):
                 st.write(message["content"])
 
-    # Play pending audio if available
-    if st.session_state.pending_audio is not None:
-        st.audio(st.session_state.pending_audio, format="audio/mp3", start_time=0)
-        # Clear pending audio after playing it
-        st.session_state.pending_audio = None
-
     # Input section below the chat
     st.markdown("---")
+
+    # Text input as fallback
+    text_input = st.text_input(
+        f"Type your message to {st.session_state.character_name}",
+        key="text_message",
+        placeholder="Type here if audio isn't working..."
+    )
+
+    # Process text input if provided
+    if text_input:
+        # Add to conversation history
+        st.session_state.messages.append({"role": "user", "content": text_input})
+
+        # Generate response
+        with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
+            response, audio_content = process_chat_response(client, st.session_state.messages, voice)
+
+            # Add to conversation history
+            st.session_state.messages.append({"role": "assistant", "content": response})
+
+            # Store audio in session state
+            st.session_state.pending_audio = audio_content
+
+            # Clear text input and rerun
+            st.session_state.text_message = ""
+            st.rerun()
+
+    # Play pending audio if available (after handling text input)
+    if st.session_state.pending_audio is not None:
+        try:
+            # Use a more reliable approach to play audio
+            with st.spinner("Loading audio response..."):
+                st.audio(
+                    st.session_state.pending_audio,
+                    format="audio/mp3",
+                    start_time=0
+                )
+                st.session_state.pending_audio = None
+        except Exception as e:
+            st.error(f"Error playing audio: {str(e)}")
+            st.session_state.pending_audio = None
 
     # Audio input handling - process only if not already processed
     if not st.session_state.audio_processed:
@@ -301,7 +348,8 @@ def render_chat_interface(client: OpenAI, voice: str):
 
         if audio_value:
             # Get transcription
-            user_message = handle_audio_input(client, audio_value)
+            with st.spinner("Transcribing your message..."):
+                user_message = handle_audio_input(client, audio_value)
 
             if user_message.strip():
                 # Add to conversation history
@@ -324,7 +372,7 @@ def render_chat_interface(client: OpenAI, voice: str):
                     st.rerun()
     else:
         # Reset audio processing flag when no input is pending
-        st.audio_input(f"Record your message to {st.session_state.character_name}")
+        st.audio_input(f"Record your message to {st.session_state.character_name}", label_visibility="visible")
         st.session_state.audio_processed = False
 
     # Reset button
