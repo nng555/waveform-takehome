@@ -153,7 +153,7 @@ def process_chat_response(client: OpenAI, messages: List[Dict[str, str]], voice:
                 model="tts-1",
                 voice=voice,
                 input=response,
-                response_format="pcm",
+                response_format="mp3",  # Changed from pcm to mp3
             )
             audio_content = audio_response.content
         except Exception as e:
@@ -277,6 +277,12 @@ def render_chat_interface(client: OpenAI, voice: str):
             with st.chat_message(role, avatar="🧙‍♂️" if role == "assistant" else None):
                 st.write(message["content"])
 
+    # Play pending audio if available
+    if 'pending_audio' in st.session_state and st.session_state.pending_audio:
+        st.audio(st.session_state.pending_audio, format="audio/mp3", start_time=0)
+        # Clear pending audio after playing it
+        st.session_state.pending_audio = None
+
     # Input section below the chat
     st.markdown("---")
     st.subheader("🎤 Voice Message")
@@ -288,12 +294,18 @@ def render_chat_interface(client: OpenAI, voice: str):
     if audio_value:
         user_message = handle_audio_input(client, audio_value)
         if user_message:
-            st.write(user_message)
+            # Display the transcribed message temporarily
+            message_display = st.empty()
+            message_display.write(user_message)
 
     # Process valid messages
     if user_message.strip():
         # Add to conversation history (will appear on next rerun)
         st.session_state.messages.append({"role": "user", "content": user_message})
+
+        # Store audio response in session state to survive the rerun
+        if 'pending_audio' not in st.session_state:
+            st.session_state.pending_audio = None
 
         # Generate response
         with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
@@ -302,16 +314,11 @@ def render_chat_interface(client: OpenAI, voice: str):
             # Add to conversation history
             st.session_state.messages.append({"role": "assistant", "content": response})
 
-            # Force a rerun to update the chat display
+            # Store audio in session state
+            st.session_state.pending_audio = audio_content
+
+            # Force a rerun to update the chat display and clear input
             st.rerun()
-
-            # This code only runs if rerun fails
-            with st.chat_message("assistant", avatar="🧙‍♂️"):
-                st.write(response)
-
-            # Play audio if available
-            if audio_content:
-                st.audio(audio_content, format="audio/mp3", start_time=0)
 
     # Reset button
     if st.button("🔄 Start a new conversation"):
