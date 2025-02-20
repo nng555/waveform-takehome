@@ -14,7 +14,7 @@ except ImportError:
 client = None
 
 def init_openai_client():
-    api_key = st.session_state.api_key
+    api_key = st.session_state.api_key if 'api_key' in st.session_state else None
     if api_key and api_key.startswith('sk-'):
         return OpenAI(api_key=api_key)
     return None
@@ -23,21 +23,44 @@ def init_openai_client():
 st.title("Fantasy Character Chat")
 st.markdown("Have conversations with characters from a high fantasy world!")
 
-# Create sidebar - forcing it to appear
-st.sidebar.title("Settings")
+# Show main API key input if not configured
+if 'api_key' not in st.session_state or not st.session_state.api_key:
+    st.write("### ⚙️ Configuration")
+    st.warning("⚠️ Please enter your OpenAI API key to continue")
 
-# API Key input in sidebar
-api_key = st.sidebar.text_input("Enter your OpenAI API Key:", type="password",
-                       help="Your key stays in your browser and is never stored")
-if api_key:
-    st.session_state.api_key = api_key
+    # Main API key input
+    api_key = st.text_input(
+        "OpenAI API Key:",
+        type="password",
+        help="Your key stays in your browser and is never stored",
+        placeholder="sk-..."
+    )
+
+    if api_key and api_key.startswith('sk-'):
+        st.session_state.api_key = api_key
+        client = init_openai_client()
+        st.success("✅ API key configured successfully!")
+        st.experimental_rerun()
+else:
+    # Key is configured, initialize client
     client = init_openai_client()
 
-# Voice settings in sidebar
-st.sidebar.subheader("Voice Settings")
-voice = st.sidebar.selectbox("Character voice:",
-                    ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
-                    index=0)
+    # Voice settings
+    voice_col1, voice_col2 = st.columns([1, 3])
+    with voice_col1:
+        st.write("##### Voice:")
+    with voice_col2:
+        voice = st.selectbox(
+            "Select character voice:",
+            ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+            index=0,
+            label_visibility="collapsed"
+        )
+
+    # Add a small reset key option
+    if st.button("🔑 Change API Key"):
+        st.session_state.api_key = None
+        st.experimental_rerun()
 
 # Initialize session state variables
 if 'messages' not in st.session_state:
@@ -52,8 +75,8 @@ if 'character_description' not in st.session_state:
 if 'chat_started' not in st.session_state:
     st.session_state.chat_started = False
 
-# Character selection section (only shown before chat starts)
-if not st.session_state.chat_started:
+# Character selection section (only shown before chat starts and after API key is provided)
+if not st.session_state.chat_started and 'api_key' in st.session_state and st.session_state.api_key:
     st.header("Choose Your Character")
 
     role_input = st.text_input(
@@ -61,15 +84,17 @@ if not st.session_state.chat_started:
         placeholder="inn bartender, grizzled warrior, mysterious wizard..."
     )
 
-    start_button = st.button("Generate Character")
+    # Only enable the button if there's input
+    button_disabled = not role_input
+    start_button = st.button("Generate Character", disabled=button_disabled, type="primary")
 
     if start_button and role_input and client:
-        with st.spinner("Creating your character..."):
+        with st.spinner("🧙 Creating your character..."):
             try:
                 res = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role": "developer", "content": "You are a helpful assistant."},
+                        {"role": "system", "content": "You are a helpful assistant."},
                         {
                             "role": "user",
                             "content": f"Write a character description for a character with a role of {role_input} in a high fantasy setting. Make sure the description includes specific character traits and a unique personality to make the interactions with the character interesting. Include details such as their temperament, race, background, and current setting. Keep things concise and within a short paragraph. Begin with the character's name between <name></name> tags."
@@ -78,57 +103,80 @@ if not st.session_state.chat_started:
                 )
 
                 role_description = res.choices[0].message.content
-                name = role_description.split("<name>")[-1].split("</name>")[0]
-
-                cleaned_description = role_description.replace("<name>", "").replace("</name>", "")
+                try:
+                    name = role_description.split("<name>")[-1].split("</name>")[0]
+                    cleaned_description = role_description.replace("<name>", "").replace("</name>", "")
+                except:
+                    # Fallback if tags aren't used properly
+                    name = f"The {role_input.title()}"
+                    cleaned_description = role_description
 
                 st.session_state.character_name = name
                 st.session_state.character_description = cleaned_description
 
                 # Initialize the chat with system message
                 st.session_state.messages = [
-                    {"role": "developer", "content": f"You are a roleplayer in a high fantasy setting having a conversation with the user. Your role is described below. Keep your responses creative but short.\n\n<role>{cleaned_description}</role>"}
+                    {"role": "system", "content": f"You are a roleplayer in a high fantasy setting having a conversation with the user. Your role is described below. Keep your responses creative but short.\n\n<role>{cleaned_description}</role>"}
                 ]
 
                 st.session_state.chat_started = True
                 st.experimental_rerun()
 
             except Exception as e:
-                st.error(f"Error creating character: {str(e)}")
-                if "API key" in str(e):
-                    st.warning("Please check your OpenAI API key.")
+                error_message = str(e)
+                st.error(f"Error creating character: {error_message}")
+                if "API key" in error_message:
+                    st.warning("⚠️ Your OpenAI API key appears to be invalid. Please check that you've entered it correctly.")
+                elif "quota" in error_message.lower():
+                    st.warning("⚠️ You may have reached your OpenAI API quota limit.")
+                elif "rate" in error_message.lower():
+                    st.warning("⚠️ Rate limit exceeded. Please wait a moment and try again.")
+                st.write("Detailed error:", error_message)
 
 # Chat interface (only shown after character is generated)
 if st.session_state.chat_started:
-    # Display character information
-    st.header(f"Chatting with {st.session_state.character_name}")
+    # Display character information with visual styling
+    st.header(f"💬 Chatting with {st.session_state.character_name}")
 
-    with st.expander("Character Description", expanded=False):
-        st.write(st.session_state.character_description)
+    with st.expander("📜 Character Background", expanded=False):
+        st.markdown(f"*{st.session_state.character_description}*")
 
-    # Display chat messages
+    # Display chat messages in a container with a light border
+    st.markdown("---")
     chat_container = st.container()
     with chat_container:
         # Only display user and assistant messages (not the system prompt)
-        for message in [m for m in st.session_state.messages if m["role"] != "developer"]:
-            with st.chat_message(message["role"]):
+        for message in [m for m in st.session_state.messages if m["role"] not in ["system", "developer"]]:
+            role = "user" if message["role"] == "user" else "assistant"
+            with st.chat_message(role, avatar="🧙‍♂️" if role == "assistant" else None):
                 st.write(message["content"])
 
-    # Audio recording
-    audio_bytes = st.audio_recorder(
-        pause_threshold=2.0,
-        sample_rate=24000,
-        key="audio_recorder"
-    )
+    # Input section with both audio and text options
+    st.markdown("---")
 
-    st.caption("Click the microphone to record your message, then wait or click again to stop.")
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        st.markdown("### 🎤")
+        # Audio recording
+        audio_bytes = st.audio_recorder(
+            pause_threshold=2.0,
+            sample_rate=24000,
+            key="audio_recorder"
+        )
 
-    # Text input as fallback
-    text_input = st.text_input("Or type your message:", key="text_input")
+    with col2:
+        st.markdown("### ⌨️")
+        # Text input as fallback
+        text_input = st.text_input("Type your message:",
+                                  key="text_input",
+                                  placeholder="What would you like to say?")
+
+    # Helper text
+    st.caption("You can either record audio by clicking the microphone, or type your message in the text box.")
 
     # Process audio input
     if audio_bytes and client:
-        with st.spinner("Processing your message..."):
+        with st.spinner("🎧 Processing your message..."):
             # Save audio to temp file
             with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
                 tmp.write(audio_bytes)
@@ -153,7 +201,7 @@ if st.session_state.chat_started:
                     st.session_state.messages.append({"role": "user", "content": user_message})
 
                     # Generate response
-                    with st.spinner(f"{st.session_state.character_name} is thinking..."):
+                    with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
                         res = client.chat.completions.create(
                             model="gpt-4o-mini",
                             messages=st.session_state.messages,
@@ -161,14 +209,65 @@ if st.session_state.chat_started:
                         response = res.choices[0].message.content
 
                     # Display assistant response
-                    with st.chat_message("assistant"):
+                    with st.chat_message("assistant", avatar="🧙‍♂️"):
                         st.write(response)
 
                     # Add to conversation history
                     st.session_state.messages.append({"role": "assistant", "content": response})
 
                     # Generate speech
-                    with st.spinner("Generating voice response..."):
+                    with st.spinner("🔊 Generating voice response..."):
+                        try:
+                            audio_response = client.audio.speech.create(
+                                model="tts-1",
+                                voice=voice,
+                                input=response,
+                            )
+
+                            # Play the audio
+                            st.audio(audio_response.content, format="audio/mp3", start_time=0)
+                        except Exception as e:
+                            st.warning(f"Could not generate speech (but the text response is available): {str(e)}")
+
+            except Exception as e:
+                st.error(f"Error processing audio: {str(e)}")
+                st.info("💡 Try typing your message instead if audio recording isn't working on your device.")
+
+    # Process text input
+    elif text_input and client:
+        user_message = text_input
+
+        # Reset the text input field before processing to prevent duplicate submissions
+        current_input = user_message
+        st.session_state.text_input = ""
+
+        # Display user message
+        with st.chat_message("user"):
+            st.write(current_input)
+
+        # Add to conversation history
+        st.session_state.messages.append({"role": "user", "content": current_input})
+
+        # Generate response
+        with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
+            try:
+                res = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=st.session_state.messages,
+                    max_tokens=300  # Keep responses reasonably short
+                )
+                response = res.choices[0].message.content
+
+                # Display assistant response
+                with st.chat_message("assistant", avatar="🧙‍♂️"):
+                    st.write(response)
+
+                # Add to conversation history
+                st.session_state.messages.append({"role": "assistant", "content": response})
+
+                # Generate speech
+                with st.spinner("🔊 Generating voice response..."):
+                    try:
                         audio_response = client.audio.speech.create(
                             model="tts-1",
                             voice=voice,
@@ -177,47 +276,26 @@ if st.session_state.chat_started:
 
                         # Play the audio
                         st.audio(audio_response.content, format="audio/mp3", start_time=0)
-
+                    except Exception as e:
+                        st.warning(f"Could not generate speech (but you can still read the response): {str(e)}")
             except Exception as e:
-                st.error(f"Error processing audio: {str(e)}")
+                st.error(f"Error generating response: {str(e)}")
+                st.session_state.messages.pop()  # Remove the user message if we couldn't get a response
 
-    # Process text input
-    elif text_input and client:
-        user_message = text_input
-
-        # Add to conversation history
-        st.session_state.messages.append({"role": "user", "content": user_message})
-
-        # Generate response
-        with st.spinner(f"{st.session_state.character_name} is thinking..."):
-            res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=st.session_state.messages,
-            )
-            response = res.choices[0].message.content
-
-        # Add to conversation history
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-        # Generate speech
-        with st.spinner("Generating voice response..."):
-            audio_response = client.audio.speech.create(
-                model="tts-1",
-                voice=voice,
-                input=response,
-            )
-
-            # Play the audio
-            st.audio(audio_response.content, format="audio/mp3", start_time=0)
-
-        # Clear the text input
-        st.session_state.text_input = ""
+    # Add a reset button at the bottom of the chat
+    if st.button("🔄 Start a new conversation"):
+        st.session_state.messages = []
+        st.session_state.character_name = ""
+        st.session_state.character_description = ""
+        st.session_state.chat_started = False
         st.experimental_rerun()
 
-# Reset button
-if st.sidebar.button("Start New Conversation"):
-    st.session_state.messages = []
-    st.session_state.character_name = ""
-    st.session_state.character_description = ""
-    st.session_state.chat_started = False
-    st.experimental_rerun()
+# Add metrics tracking to sidebar
+if 'messages_count' not in st.session_state:
+    st.session_state.messages_count = 0
+
+# Update metrics when chat is active
+if st.session_state.chat_started:
+    message_count = len([m for m in st.session_state.messages if m["role"] in ["user", "assistant"]])
+    if message_count != st.session_state.messages_count:
+        st.session_state.messages_count = message_count
