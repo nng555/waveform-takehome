@@ -20,35 +20,8 @@ def init_openai_client():
     api_key = st.session_state.api_key if 'api_key' in st.session_state else None
     if api_key and (api_key.startswith('sk-') or api_key.startswith('sk-org-') or api_key.startswith('sk-proj-')):
         try:
-            # Check version and initialize accordingly
-            import openai
-            version = openai.__version__
-
-            if version.startswith('1.'):
-                # For OpenAI v1.x - pass organization ID if available
-                if api_key.startswith('sk-org-') or api_key.startswith('sk-proj-'):
-                    # Try to extract org ID or project ID if present
-                    try:
-                        parts = api_key.split('_')
-                        if len(parts) > 1:
-                            # Attempt with organization parameter
-                            return OpenAI(api_key=api_key)
-                        else:
-                            return OpenAI(api_key=api_key)
-                    except:
-                        return OpenAI(api_key=api_key)
-                else:
-                    return OpenAI(api_key=api_key)
-            else:
-                # For older versions
-                openai.api_key = api_key
-                return openai
-
-        except TypeError as e:
-            # Handle version compatibility issues
-            st.error(f"OpenAI client initialization error: {str(e)}")
-            st.info("The current OpenAI package version is incompatible. Try using version 1.3.0.")
-            return None
+            # For OpenAI v1.x
+            return OpenAI(api_key=api_key)
         except Exception as e:
             st.error(f"Error initializing OpenAI client: {str(e)}")
             return None
@@ -91,6 +64,20 @@ if debug_mode:
         st.write("OpenAI library is available ✓")
     else:
         st.write("OpenAI library is NOT available ✗")
+
+    if client:
+        st.write("OpenAI client initialized successfully ✓")
+        try:
+            # Just a simple test to see if credentials are working
+            test_response = client.models.list()
+            st.write("API credentials working ✓")
+        except Exception as e:
+            st.write(f"API credentials issue: {str(e)}")
+    else:
+        st.write("OpenAI client NOT initialized ✗")
+
+    # Replace the API key validation with this simpler check:
+    is_valid_key = api_key and api_key.startswith('sk-')
 
     st.write("---")
 
