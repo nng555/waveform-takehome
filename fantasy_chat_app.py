@@ -295,8 +295,7 @@ def render_chat_interface(client: OpenAI, voice: str):
         st.markdown(f"*{st.session_state.character_description}*")
 
     # Display chat messages first
-    st.text(st.session_state.messages)
-    if st.session_state.messages[-1]['role'] != 'developer':
+    if st.session_state.messages[-1]['role'] != 'system':
         st.markdown("---")
 
     chat_container = st.container()
