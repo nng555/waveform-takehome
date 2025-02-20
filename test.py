@@ -179,7 +179,7 @@ def app_sst(
         except queue.Empty:
             status_indicator.write("No frame arrived.")
             sound_chunk = handle_queue_empty(sound_chunk, text_output)
-            continue
+            return
 
         sound_chunk, silence_frames = process_audio_frames(audio_frames, sound_chunk, silence_frames, energy_threshold)
         sound_chunk, silence_frames = handle_silence(sound_chunk, silence_frames, silence_frames_threshold, text_output)
