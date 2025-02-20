@@ -425,13 +425,10 @@ if st.session_state.chat_started:
         else:
             status_indicator.write("Stopping.")
             if len(sound_chunk) > 0:
-                text = transcribe(sound_chunk.raw_data)
-                text_output.write(text)
+                user_message = transcribe(sound_chunk.raw_data)
+                text_output.write(user_message)
             break
 
-
-
-    user_message = text
     if user_message.strip():  # Only process non-empty messages
         # Display user message
         with st.chat_message("user"):
