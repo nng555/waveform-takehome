@@ -207,7 +207,7 @@ st.title("Fantasy Character Chat")
 st.markdown("Have conversations with characters from a high fantasy world!")
 
 # Add debugging information - will be visible only in development
-debug_mode = True
+debug_mode = False
 if debug_mode:
     st.write("### Debug Information")
     import sys
@@ -428,6 +428,8 @@ if st.session_state.chat_started:
                 text = transcribe(sound_chunk.raw_data)
                 text_output.write(text)
             break
+
+
 
     user_message = text
     if user_message.strip():  # Only process non-empty messages
