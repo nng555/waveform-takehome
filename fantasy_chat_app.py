@@ -76,7 +76,6 @@ if 'api_key' not in st.session_state or not st.session_state.api_key:
     # Main API key input
     api_key = st.text_input(
         "OpenAI API Key:",
-        type="password",
         help="Your key stays in your browser and is never stored",
         placeholder="sk-... or sk-proj-..."
     )
