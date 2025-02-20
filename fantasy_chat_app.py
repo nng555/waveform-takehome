@@ -19,7 +19,7 @@ client = None
 def init_openai_client():
     api_key = st.session_state.api_key if 'api_key' in st.session_state else None
     os.environ['OPENAI_API_KEY'] = api_key
-    if api_key and api_key.startswith('sk-'):
+    if api_key:
         try:
             # For OpenAI v1.x
             return OpenAI()
