@@ -1,8 +1,10 @@
 import streamlit as st
-from audiorecorder import audiorecorder
 import tempfile
 import os
 import time
+import base64
+import logging
+from io import BytesIO
 
 # Wrap OpenAI import in try/except
 try:
@@ -14,27 +16,72 @@ except ImportError as e:
     OPENAI_AVAILABLE = False
     OpenAI = None
 
+# Import streamlit-webrtc for audio recording
+try:
+    from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings
+    import av
+    WEBRTC_AVAILABLE = True
+except ImportError:
+    st.warning("streamlit-webrtc is not installed. Please install it with: `pip install streamlit-webrtc`")
+    WEBRTC_AVAILABLE = False
+
 # Initialize OpenAI client
 client = None
 
 def init_openai_client():
     api_key = st.session_state.api_key if 'api_key' in st.session_state else None
-    os.environ['OPENAI_API_KEY'] = api_key
-    if api_key:
+    if api_key and api_key.startswith('sk-'):
         try:
             # For OpenAI v1.x
-            return OpenAI()
+            return OpenAI(api_key=api_key)
         except Exception as e:
             st.error(f"Error initializing OpenAI client: {str(e)}")
             return None
     return None
+
+# Audio processing class if webrtc is available
+if WEBRTC_AVAILABLE:
+    class AudioProcessor:
+        def __init__(self):
+            self.audio_frames = []
+            self.recording = False
+            self.recorded_audio = None
+
+        def recv(self, frame):
+            if self.recording:
+                self.audio_frames.append(frame.to_ndarray())
+            return frame
+
+        def start_recording(self):
+            self.recording = True
+            self.audio_frames = []
+
+        def stop_recording(self):
+            self.recording = False
+            if self.audio_frames:
+                # Convert frames to a single audio file
+                try:
+                    import numpy as np
+                    # Concatenate all audio frames
+                    audio_data = np.concatenate(self.audio_frames, axis=0)
+                    # Create wav file in memory
+                    import scipy.io.wavfile as wavfile
+                    wav_bytes = BytesIO()
+                    wavfile.write(wav_bytes, 16000, audio_data.astype(np.int16))
+                    wav_bytes.seek(0)
+                    self.recorded_audio = wav_bytes.read()
+                    return self.recorded_audio
+                except Exception as e:
+                    st.error(f"Error processing audio: {e}")
+                    return None
+            return None
 
 # App title and description
 st.title("Fantasy Character Chat")
 st.markdown("Have conversations with characters from a high fantasy world!")
 
 # Add debugging information - will be visible only in development
-debug_mode = False
+debug_mode = True
 if debug_mode:
     st.write("### Debug Information")
     import sys
@@ -45,7 +92,7 @@ if debug_mode:
         st.write("Installed packages:")
         packages = sorted([f"{pkg.key}=={pkg.version}" for pkg in pkg_resources.working_set])
         for package in packages:
-            if any(name in package.lower() for name in ['openai', 'streamlit', 'requests']):
+            if any(name in package.lower() for name in ['openai', 'streamlit', 'requests', 'webrtc']):
                 st.write(f"- {package}")
     except Exception as e:
         st.write(f"Error checking packages: {e}")
@@ -64,8 +111,24 @@ if debug_mode:
     # Check OpenAI client
     if OPENAI_AVAILABLE:
         st.write("OpenAI library is available ✓")
+        if client:
+            st.write("OpenAI client initialized successfully ✓")
+            try:
+                # Just a simple test to see if credentials are working
+                test_response = client.models.list()
+                st.write("API credentials working ✓")
+            except Exception as e:
+                st.write(f"API credentials issue: {str(e)}")
+        else:
+            st.write("OpenAI client NOT initialized ✗")
     else:
         st.write("OpenAI library is NOT available ✗")
+
+    # Check WebRTC
+    if WEBRTC_AVAILABLE:
+        st.write("streamlit-webrtc is available ✓")
+    else:
+        st.write("streamlit-webrtc is NOT available ✗")
 
     st.write("---")
 
@@ -77,6 +140,7 @@ if 'api_key' not in st.session_state or not st.session_state.api_key:
     # Main API key input
     api_key = st.text_input(
         "OpenAI API Key:",
+        type="password",
         help="Your key stays in your browser and is never stored",
         placeholder="sk-... or sk-proj-..."
     )
@@ -92,17 +156,6 @@ if 'api_key' not in st.session_state or not st.session_state.api_key:
 else:
     # Key is configured, initialize client
     client = init_openai_client()
-
-    if client:
-        st.write("OpenAI client initialized successfully ✓")
-        try:
-            # Just a simple test to see if credentials are working
-            test_response = client.models.list()
-            st.write("API credentials working ✓")
-        except Exception as e:
-            st.write(f"API credentials issue: {str(e)}")
-    else:
-        st.write("OpenAI client NOT initialized ✗")
 
     # Voice settings
     voice_col1, voice_col2 = st.columns([1, 3])
@@ -133,6 +186,9 @@ if 'character_description' not in st.session_state:
 
 if 'chat_started' not in st.session_state:
     st.session_state.chat_started = False
+
+if 'audio_processor' not in st.session_state and WEBRTC_AVAILABLE:
+    st.session_state.audio_processor = AudioProcessor()
 
 # Character selection section (only shown before chat starts and after API key is provided)
 if not st.session_state.chat_started and 'api_key' in st.session_state and st.session_state.api_key:
@@ -197,11 +253,11 @@ if st.session_state.chat_started:
     # Display character information with visual styling
     st.header(f"💬 Chatting with {st.session_state.character_name}")
 
-    st.markdown(f"*{st.session_state.character_description}*")
+    with st.expander("📜 Character Background", expanded=False):
+        st.markdown(f"*{st.session_state.character_description}*")
 
     # Display chat messages in a container with a light border
     st.markdown("---")
-    st.title("Messages")
     chat_container = st.container()
     with chat_container:
         # Only display user and assistant messages (not the system prompt)
@@ -213,68 +269,119 @@ if st.session_state.chat_started:
     # Input section with both audio and text options
     st.markdown("---")
 
-    audio = audiorecorder("Click to record your message", "Click to stop recording")
+    # WebRTC audio section if available
+    recorded_audio = None
+    if WEBRTC_AVAILABLE:
+        col1, col2 = st.columns([1, 1])
 
-    if len(audio) > 0:
-        # To play audio in frontend:
-        st.audio(audio.export().read())
+        with col1:
+            st.subheader("🎤 Voice Message")
 
-        with st.spinner("🎧 Processing your message..."):
-            # Save audio to temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
-                audio.export(tmp.name, format="wav")
-                tmp_path = tmp.name
+            # WebRTC streamer for audio
+            webrtc_ctx = webrtc_streamer(
+                key="speech-to-text",
+                mode=WebRtcMode.SENDONLY,
+                audio_receiver_size=256,
+                client_settings=ClientSettings(
+                    media_stream_constraints={"audio": True, "video": False},
+                ),
+                rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+            )
 
-            try:
-                # Transcribe audio
-                audio_file = open(tmp_path, "rb")
-                transcription = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file
-                )
-                os.unlink(tmp_path)  # Clean up temp file
+            # Recording controls
+            if webrtc_ctx.state.playing:
+                if st.button("Start Recording"):
+                    st.session_state.audio_processor.start_recording()
+                    st.info("Recording... Press 'Stop Recording' when finished.")
 
-                user_message = transcription.text
-                if user_message.strip():  # Only process non-empty messages
-                    # Display user message
-                    with st.chat_message("user"):
-                        st.write(user_message)
+                if st.button("Stop Recording"):
+                    recorded_audio = st.session_state.audio_processor.stop_recording()
+                    if recorded_audio:
+                        st.success("Recording completed!")
+                        # Save to temp file for processing
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
+                            tmp.write(recorded_audio)
+                            st.session_state.audio_file_path = tmp.name
+                    else:
+                        st.error("No audio was recorded.")
+    else:
+        st.warning("Audio recording is not available. Please use text input instead.")
 
-                    # Add to conversation history
-                    st.session_state.messages.append({"role": "user", "content": user_message})
+    # Text input section
+    st.subheader("⌨️ Text Message")
+    text_input = st.text_input(
+        "Type your message:",
+        key="text_input",
+        placeholder="What would you like to say?"
+    )
 
-                    # Generate response
-                    with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
-                        res = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=st.session_state.messages,
+    # Helper text
+    if WEBRTC_AVAILABLE:
+        st.caption("You can either record audio by clicking the microphone, or type your message in the text box.")
+    else:
+        st.caption("Please type your message in the text box.")
+
+    # Process recorded audio if available
+    if 'audio_file_path' in st.session_state and client:
+        try:
+            # Transcribe audio
+            audio_file = open(st.session_state.audio_file_path, "rb")
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
+            os.unlink(st.session_state.audio_file_path)  # Clean up temp file
+            del st.session_state.audio_file_path
+
+            user_message = transcription.text
+            if user_message.strip():  # Only process non-empty messages
+                # Display user message
+                with st.chat_message("user"):
+                    st.write(user_message)
+
+                # Add to conversation history
+                st.session_state.messages.append({"role": "user", "content": user_message})
+
+                # Generate response
+                with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
+                    res = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=st.session_state.messages,
+                    )
+                    response = res.choices[0].message.content
+
+                # Display assistant response
+                with st.chat_message("assistant", avatar="🧙‍♂️"):
+                    st.write(response)
+
+                # Add to conversation history
+                st.session_state.messages.append({"role": "assistant", "content": response})
+
+                # Generate speech
+                with st.spinner("🔊 Generating voice response..."):
+                    try:
+                        audio_response = client.audio.speech.create(
+                            model="tts-1",
+                            voice=voice,
+                            input=response,
                         )
-                        response = res.choices[0].message.content
 
-                    # Display assistant response
-                    with st.chat_message("assistant", avatar="🧙‍♂️"):
-                        st.write(response)
+                        # Play the audio
+                        st.audio(audio_response.content, format="audio/mp3", start_time=0)
+                    except Exception as e:
+                        st.warning(f"Could not generate speech (but the text response is available): {str(e)}")
 
-                    # Add to conversation history
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+                st.rerun()  # Refresh the UI
 
-                    # Generate speech
-                    with st.spinner("🔊 Generating voice response..."):
-                        try:
-                            audio_response = client.audio.speech.create(
-                                model="tts-1",
-                                voice=voice,
-                                input=response,
-                            )
-
-                            # Play the audio
-                            st.audio(audio_response.content, format="audio/mp3", start_time=0)
-                        except Exception as e:
-                            st.warning(f"Could not generate speech (but the text response is available): {str(e)}")
-
-            except Exception as e:
-                st.error(f"Error processing audio: {str(e)}")
-                st.info("💡 Try typing your message instead if audio recording isn't working on your device.")
+        except Exception as e:
+            st.error(f"Error processing audio: {str(e)}")
+            if 'audio_file_path' in st.session_state:
+                try:
+                    os.unlink(st.session_state.audio_file_path)
+                    del st.session_state.audio_file_path
+                except:
+                    pass
+            st.info("💡 Try typing your message instead if audio recording isn't working on your device.")
 
     # Process text input
     elif text_input and client:
@@ -324,6 +431,8 @@ if st.session_state.chat_started:
             except Exception as e:
                 st.error(f"Error generating response: {str(e)}")
                 st.session_state.messages.pop()  # Remove the user message if we couldn't get a response
+
+        st.rerun()  # Refresh the UI after processing
 
     # Add a reset button at the bottom of the chat
     if st.button("🔄 Start a new conversation"):
