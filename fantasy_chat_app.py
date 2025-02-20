@@ -34,7 +34,7 @@ st.title("Fantasy Character Chat")
 st.markdown("Have conversations with characters from a high fantasy world!")
 
 # Add debugging information - will be visible only in development
-debug_mode = True
+debug_mode = False
 if debug_mode:
     st.write("### Debug Information")
     import sys
@@ -212,38 +212,6 @@ if st.session_state.chat_started:
     # Input section with both audio and text options
     st.markdown("---")
 
-    """
-    col1, col2 = st.columns([1, 3])
-
-    # Variable to store audio input
-    audio_bytes = None
-
-    with col1:
-        st.markdown("### 🎤")
-        # Try to use audio recorder with fallback
-        try:
-            audio_bytes = st.audio_recorder(
-                pause_threshold=2.0,
-                sample_rate=24000,
-                key="audio_recorder"
-            )
-        except Exception as e:
-            st.warning(f"Audio recording not available: {str(e)}")
-            st.info("Please use text input instead.")
-
-    with col2:
-        st.markdown("### ⌨️")
-        # Text input as fallback
-        text_input = st.text_input("Type your message:",
-                                  key="text_input",
-                                  placeholder="What would you like to say?")
-
-    # Helper text with condition based on audio recorder availability
-    if 'audio_recorder' in st.session_state:
-        st.caption("You can either record audio by clicking the microphone, or type your message in the text box.")
-    else:
-        st.caption("Please type your message in the text box.")
-    """
     wav_audio_data = st_audiorec()
 
     if wav_audio_data is not None:
