@@ -20,12 +20,22 @@ def init_openai_client():
     api_key = st.session_state.api_key if 'api_key' in st.session_state else None
     if api_key and api_key.startswith('sk-'):
         try:
-            # Create client with just the API key, no additional parameters
-            return OpenAI(api_key=api_key)
+            # Check version and initialize accordingly
+            import openai
+            version = openai.__version__
+
+            if version.startswith('1.'):
+                # For OpenAI v1.x
+                return OpenAI(api_key=api_key)
+            else:
+                # For older versions
+                openai.api_key = api_key
+                return openai
+
         except TypeError as e:
             # Handle version compatibility issues
-            st.error(f"Error initializing OpenAI client: {str(e)}")
-            st.info("You may need to update your openai package: `pip install --upgrade openai`")
+            st.error(f"OpenAI client initialization error: {str(e)}")
+            st.info("The current OpenAI package version is incompatible. Try using version 1.3.0.")
             return None
         except Exception as e:
             st.error(f"Error initializing OpenAI client: {str(e)}")
