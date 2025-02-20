@@ -196,8 +196,7 @@ if st.session_state.chat_started:
     # Display character information with visual styling
     st.header(f"💬 Chatting with {st.session_state.character_name}")
 
-    with st.expander("📜 Character Background", expanded=False):
-        st.markdown(f"*{st.session_state.character_description}*")
+    st.markdown(f"*{st.session_state.character_description}*")
 
     # Display chat messages in a container with a light border
     st.markdown("---")
@@ -213,14 +212,22 @@ if st.session_state.chat_started:
     st.markdown("---")
 
     col1, col2 = st.columns([1, 3])
+
+    # Variable to store audio input
+    audio_bytes = None
+
     with col1:
         st.markdown("### 🎤")
-        # Audio recording
-        audio_bytes = st.audio_recorder(
-            pause_threshold=2.0,
-            sample_rate=24000,
-            key="audio_recorder"
-        )
+        # Try to use audio recorder with fallback
+        try:
+            audio_bytes = st.audio_recorder(
+                pause_threshold=2.0,
+                sample_rate=24000,
+                key="audio_recorder"
+            )
+        except Exception as e:
+            st.warning(f"Audio recording not available: {str(e)}")
+            st.info("Please use text input instead.")
 
     with col2:
         st.markdown("### ⌨️")
@@ -229,8 +236,11 @@ if st.session_state.chat_started:
                                   key="text_input",
                                   placeholder="What would you like to say?")
 
-    # Helper text
-    st.caption("You can either record audio by clicking the microphone, or type your message in the text box.")
+    # Helper text with condition based on audio recorder availability
+    if 'audio_recorder' in st.session_state:
+        st.caption("You can either record audio by clicking the microphone, or type your message in the text box.")
+    else:
+        st.caption("Please type your message in the text box.")
 
     # Process audio input
     if audio_bytes and client:
