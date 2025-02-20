@@ -201,6 +201,7 @@ if st.session_state.chat_started:
 
     # Display chat messages in a container with a light border
     st.markdown("---")
+    st.title("Messages")
     chat_container = st.container()
     with chat_container:
         # Only display user and assistant messages (not the system prompt)
@@ -212,8 +213,7 @@ if st.session_state.chat_started:
     # Input section with both audio and text options
     st.markdown("---")
 
-    st.title("Audio Recorder")
-    audio = audiorecorder("Click to record", "Click to stop recording")
+    audio = audiorecorder("Click to record your message", "Click to stop recording")
 
     if len(audio) > 0:
         # To play audio in frontend:
