@@ -314,7 +314,8 @@ def render_chat_interface(client: OpenAI, voice: str):
                 st.audio(
                     st.session_state.pending_audio,
                     format="audio/mp3",
-                    start_time=0
+                    start_time=0,
+                    autoplay=True,
                 )
                 st.session_state.pending_audio = None
         except Exception as e:
