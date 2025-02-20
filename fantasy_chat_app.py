@@ -266,8 +266,9 @@ def render_chat_interface(client: OpenAI, voice: str):
     with st.expander("📜 Character Background", expanded=False):
         st.markdown(f"*{st.session_state.character_description}*")
 
-    # Display chat messages
+    # Display chat messages first
     st.markdown("---")
+    st.subheader("Conversation")
     chat_container = st.container()
     with chat_container:
         # Only display user and assistant messages (not the system prompt)
@@ -276,7 +277,7 @@ def render_chat_interface(client: OpenAI, voice: str):
             with st.chat_message(role, avatar="🧙‍♂️" if role == "assistant" else None):
                 st.write(message["content"])
 
-    # Input section
+    # Input section below the chat
     st.markdown("---")
     st.subheader("🎤 Voice Message")
 
@@ -291,22 +292,22 @@ def render_chat_interface(client: OpenAI, voice: str):
 
     # Process valid messages
     if user_message.strip():
-        # Display user message
-        with st.chat_message("user"):
-            st.write(user_message)
-
-        # Add to conversation history
+        # Add to conversation history (will appear on next rerun)
         st.session_state.messages.append({"role": "user", "content": user_message})
 
-        # Generate and display response
+        # Generate response
         with st.spinner(f"🧠 {st.session_state.character_name} is thinking..."):
             response, audio_content = process_chat_response(client, st.session_state.messages, voice)
 
-            with st.chat_message("assistant", avatar="🧙‍♂️"):
-                st.write(response)
-
             # Add to conversation history
             st.session_state.messages.append({"role": "assistant", "content": response})
+
+            # Force a rerun to update the chat display
+            st.rerun()
+
+            # This code only runs if rerun fails
+            with st.chat_message("assistant", avatar="🧙‍♂️"):
+                st.write(response)
 
             # Play audio if available
             if audio_content:
