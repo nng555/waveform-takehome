@@ -62,22 +62,18 @@ if debug_mode:
     # Check OpenAI client
     if OPENAI_AVAILABLE:
         st.write("OpenAI library is available ✓")
+        if client:
+            st.write("OpenAI client initialized successfully ✓")
+            try:
+                # Just a simple test to see if credentials are working
+                test_response = client.models.list()
+                st.write("API credentials working ✓")
+            except Exception as e:
+                st.write(f"API credentials issue: {str(e)}")
+        else:
+            st.write("OpenAI client NOT initialized ✗")
     else:
         st.write("OpenAI library is NOT available ✗")
-
-    if client:
-        st.write("OpenAI client initialized successfully ✓")
-        try:
-            # Just a simple test to see if credentials are working
-            test_response = client.models.list()
-            st.write("API credentials working ✓")
-        except Exception as e:
-            st.write(f"API credentials issue: {str(e)}")
-    else:
-        st.write("OpenAI client NOT initialized ✗")
-
-    # Replace the API key validation with this simpler check:
-    is_valid_key = api_key and api_key.startswith('sk-')
 
     st.write("---")
 
@@ -94,9 +90,7 @@ if 'api_key' not in st.session_state or not st.session_state.api_key:
         placeholder="sk-... or sk-proj-..."
     )
 
-    is_valid_key = api_key and (api_key.startswith('sk-') or
-                              api_key.startswith('sk-org-') or
-                              api_key.startswith('sk-proj-'))
+    is_valid_key = api_key and api_key.startswith('sk-')
 
     if is_valid_key:
         st.session_state.api_key = api_key
