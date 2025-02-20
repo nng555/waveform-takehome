@@ -295,9 +295,9 @@ def render_chat_interface(client: OpenAI, voice: str):
         st.markdown(f"*{st.session_state.character_description}*")
 
     # Display chat messages first
-    if st.session_state.messages != []:
+    if st.session_state.messages[-1]['role'] != 'developer':
         st.markdown("---")
-        st.subheader("Conversation")
+
     chat_container = st.container()
     with chat_container:
         # Only display user and assistant messages (not the system prompt)
@@ -305,9 +305,6 @@ def render_chat_interface(client: OpenAI, voice: str):
             role = "user" if message["role"] == "user" else "assistant"
             with st.chat_message(role, avatar="🧙‍♂️" if role == "assistant" else None):
                 st.write(message["content"])
-
-    # Input section below the chat
-    st.markdown("---")
 
     # Play pending audio if available (after handling text input)
     if st.session_state.pending_audio is not None:
@@ -323,6 +320,9 @@ def render_chat_interface(client: OpenAI, voice: str):
         except Exception as e:
             st.error(f"Error playing audio: {str(e)}")
             st.session_state.pending_audio = None
+
+    # Input section below the chat
+    st.markdown("---")
 
     # Audio input handling - process only if not already processed
     if not st.session_state.audio_processed:
