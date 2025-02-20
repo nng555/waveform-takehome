@@ -30,8 +30,6 @@ logger = logging.getLogger(__name__)
 
 import streamlit as st
 import numpy as np
-from streamlit_webrtc import WebRtcMode, webrtc_streamer
-# from streamlit_webrtc import VideoTransformerBase, VideoTransformerContext
 
 from pydub import AudioSegment
 import queue, pydub, tempfile, openai, os, time
@@ -204,43 +202,6 @@ def init_openai_client():
             return None
     return None
 
-# Audio processing class if webrtc is available
-if WEBRTC_AVAILABLE:
-    class AudioProcessor:
-        def __init__(self):
-            self.audio_frames = []
-            self.recording = False
-            self.recorded_audio = None
-
-        def recv(self, frame):
-            if self.recording:
-                self.audio_frames.append(frame.to_ndarray())
-            return frame
-
-        def start_recording(self):
-            self.recording = True
-            self.audio_frames = []
-
-        def stop_recording(self):
-            self.recording = False
-            if self.audio_frames:
-                # Convert frames to a single audio file
-                try:
-                    import numpy as np
-                    # Concatenate all audio frames
-                    audio_data = np.concatenate(self.audio_frames, axis=0)
-                    # Create wav file in memory
-                    import scipy.io.wavfile as wavfile
-                    wav_bytes = BytesIO()
-                    wavfile.write(wav_bytes, 16000, audio_data.astype(np.int16))
-                    wav_bytes.seek(0)
-                    self.recorded_audio = wav_bytes.read()
-                    return self.recorded_audio
-                except Exception as e:
-                    st.error(f"Error processing audio: {e}")
-                    return None
-            return None
-
 # App title and description
 st.title("Fantasy Character Chat")
 st.markdown("Have conversations with characters from a high fantasy world!")
@@ -351,9 +312,6 @@ if 'character_description' not in st.session_state:
 
 if 'chat_started' not in st.session_state:
     st.session_state.chat_started = False
-
-if 'audio_processor' not in st.session_state and WEBRTC_AVAILABLE:
-    st.session_state.audio_processor = AudioProcessor()
 
 # Character selection section (only shown before chat starts and after API key is provided)
 if not st.session_state.chat_started and 'api_key' in st.session_state and st.session_state.api_key:
