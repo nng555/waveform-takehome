@@ -62,16 +62,6 @@ if debug_mode:
     # Check OpenAI client
     if OPENAI_AVAILABLE:
         st.write("OpenAI library is available ✓")
-        if client:
-            st.write("OpenAI client initialized successfully ✓")
-            try:
-                # Just a simple test to see if credentials are working
-                test_response = client.models.list()
-                st.write("API credentials working ✓")
-            except Exception as e:
-                st.write(f"API credentials issue: {str(e)}")
-        else:
-            st.write("OpenAI client NOT initialized ✗")
     else:
         st.write("OpenAI library is NOT available ✗")
 
@@ -101,6 +91,17 @@ if 'api_key' not in st.session_state or not st.session_state.api_key:
 else:
     # Key is configured, initialize client
     client = init_openai_client()
+
+    if client:
+        st.write("OpenAI client initialized successfully ✓")
+        try:
+            # Just a simple test to see if credentials are working
+            test_response = client.models.list()
+            st.write("API credentials working ✓")
+        except Exception as e:
+            st.write(f"API credentials issue: {str(e)}")
+    else:
+        st.write("OpenAI client NOT initialized ✗")
 
     # Voice settings
     voice_col1, voice_col2 = st.columns([1, 3])
