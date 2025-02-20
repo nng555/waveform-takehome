@@ -396,9 +396,6 @@ if st.session_state.chat_started:
 
         status_indicator = st.empty()
 
-        if not webrtc_ctx.state.playing:
-            return
-
         status_indicator.write("Loading...")
         text_output = st.empty()
         stream = None
